@@ -7,13 +7,14 @@
 :root {
   color-scheme: light dark;
 
-  --bg: #f3f5f4;
+  --bg: #18181b;
   --surface: #ffffff;
   --line: #d6ddd9;
   --ink: #18231f;
   --muted: #5b6862;
   --accent: #1b7f4f;
   --accent-ink: #ffffff;
+  --font-mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 
   --info-bg: #e8eef2;  --info-ink: #27404f;
   --ok-bg: #e2f3e9;    --ok-ink: #12603a;
@@ -189,6 +190,12 @@ body {
 .status-dot[data-status="Rejected"]        { background: var(--s-rejected); }
 .status-dot[data-status="Withdrawn"]       { background: var(--s-withdrawn); }
 .cell select { padding-left: 8px; }
+#f-salary,
+#f-date,
+#f-status {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---------- buttons ---------- */
 
