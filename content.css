@@ -87,39 +87,16 @@ mark.exp-hl-flash { outline: 2px solid #f59e0b; }
   z-index: 2147483646;
   box-sizing: border-box;
   max-width: calc(100vw - 32px);
-  padding: 16px 26px;
-  border: 1px solid #52525b;
+  padding: 16px;
+  border: 1px solid #3f3f46;
   border-radius: 0;
   background: #18181b;
-  color: #e4e4e7;
-  box-shadow: 0 8px 26px rgb(0 0 0 / 38%);
-  font: 600 16px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #f4f4f5;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 38%) !important;
+  font: 14px/1.45 system-ui, sans-serif;
   text-align: center;
   white-space: nowrap;
   cursor: pointer;
-}
-[data-roletrack-experience-label] {
-  color: #a1a1aa;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-}
-[data-roletrack-experience-value] {
-  color: #fafafa;
-  font-size: 25px;
-  font-weight: 850;
-}
-[data-roletrack-experience-detail] {
-  color: #a1a1aa;
-  font-size: 13px;
-  font-weight: 500;
-}
-[data-roletrack-experience-banner]:disabled { cursor: default; opacity: 1; }
-@media (max-width: 540px) {
-  [data-roletrack-experience-banner] { gap: 8px; padding: 12px 14px; white-space: normal; }
-  [data-roletrack-experience-value] { font-size: 21px; }
-  [data-roletrack-experience-label] { font-size: 10px; }
-  [data-roletrack-experience-detail] { font-size: 11px; }
 }
 [data-roletrack-experience-banner][data-roletrack-entry-level="true"] {
   background: #18181b;
@@ -129,4 +106,27 @@ mark.exp-hl-flash { outline: 2px solid #f59e0b; }
 [data-roletrack-experience-banner][data-roletrack-entry-level="true"] [data-roletrack-experience-value],
 [data-roletrack-experience-banner][data-roletrack-entry-level="true"] [data-roletrack-experience-detail] {
   color: #3fae7a;
+}
+[data-roletrack-experience-label] {
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+[data-roletrack-experience-value] {
+  color: #fafafa;
+  font-size: 20px;
+  font-weight: 800;
+}
+[data-roletrack-experience-detail] {
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 500;
+}
+[data-roletrack-experience-banner]:disabled { cursor: default; opacity: 1; }
+@media (max-width: 540px) {
+  [data-roletrack-experience-banner] { gap: 8px; padding: 12px 14px; white-space: normal; }
+  [data-roletrack-experience-value] { font-size: 21px; }
+  [data-roletrack-experience-label] { font-size: 10px; }
+  [data-roletrack-experience-detail] { font-size: 11px; }
 }

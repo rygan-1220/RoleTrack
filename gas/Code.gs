@@ -15,6 +15,10 @@
 /** Name of the tab that holds your applications. Created automatically if it doesn't exist. */
 const SHEET_NAME = 'Applications';
 
+/** Row containing the column headers. Application data starts on the following row. */
+const HEADER_ROW = 6;
+const DATA_START_ROW = HEADER_ROW + 1;
+
 const STATUSES = ['To Apply', 'Applied', 'OA / Assessment', 'Interview', 'Offer', 'Rejected', 'Withdrawn'];
 const DEFAULT_STATUS = 'Applied';
 
@@ -202,8 +206,8 @@ function getSheet_() {
   let sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
-    sheet.setFrozenRows(1);
   }
+  sheet.setFrozenRows(HEADER_ROW);
   return sheet;
 }
 
@@ -212,7 +216,7 @@ function getSheet_() {
  */
 function getColumnMap_(sheet) {
   const lastCol = sheet.getLastColumn();
-  const headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(function (h) { return normalizeText_(String(h)).toLowerCase(); }) : [];
+  const headers = lastCol > 0 ? sheet.getRange(HEADER_ROW, 1, 1, lastCol).getValues()[0].map(function (h) { return normalizeText_(String(h)).toLowerCase(); }) : [];
 
   const cols = {};
   SCHEMA.forEach(function (field) {
@@ -225,10 +229,10 @@ function getColumnMap_(sheet) {
     if (field.key in cols) return;
     headers.push(field.header.toLowerCase());
     cols[field.key] = headers.length - 1;
-    const headerCell = sheet.getRange(1, headers.length);
+    const headerCell = sheet.getRange(HEADER_ROW, headers.length);
     headerCell.setValue(field.header).setFontWeight('bold');
     if (field.format && sheet.getMaxRows() > 1) {
-      sheet.getRange(2, headers.length, sheet.getMaxRows() - 1, 1).setNumberFormat(field.format);
+      sheet.getRange(DATA_START_ROW, headers.length, sheet.getMaxRows() - DATA_START_ROW + 1, 1).setNumberFormat(field.format);
     }
   });
 
@@ -282,9 +286,9 @@ function normalizeUrl_(raw) {
 /** A duplicate requires the normalized URL, company, and role all to match. */
 function findDuplicate_(sheet, cols, job) {
   const lastRow = sheet.getLastRow();
-  if (lastRow < 2) return null;
+  if (lastRow < DATA_START_ROW) return null;
 
-  const rows = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
+  const rows = sheet.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, sheet.getLastColumn()).getValues();
   const jobUrl = normalizeUrl_(job.url);
   const jobCompany = normalizeKey_(job.company);
   const jobRole = normalizeKey_(job.role);
@@ -297,7 +301,7 @@ function findDuplicate_(sheet, cols, job) {
     const row = rows[i];
     const rowUrl = normalizeUrl_(row[cols.url]);
     if (rowUrl && rowUrl === jobUrl && normalizeKey_(row[cols.company]) === jobCompany && normalizeKey_(row[cols.role]) === jobRole) {
-      return { type: 'url', row: i + 2, record: toRecord_(row, cols) };
+      return { type: 'url', row: i + DATA_START_ROW, record: toRecord_(row, cols) };
     }
   }
   return null;
