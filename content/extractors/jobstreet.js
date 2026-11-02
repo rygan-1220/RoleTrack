@@ -1,6 +1,6 @@
-// JobStreet extractor (my.jobstreet.com, sg.jobstreet.com, ...).
+// Jobstreet extractor (my.jobstreet.com, sg.jobstreet.com, ...).
 //
-// JobStreet's pages are built on SEEK's platform, which exposes stable `data-automation`
+// Jobstreet's pages are built on SEEK's platform, which exposes stable `data-automation`
 // attributes (unlike its hashed CSS class names). We rely on those first, then fall back
 // to JSON-LD and the generic semantic layer.
 
@@ -20,7 +20,7 @@
   function canonicalUrl(doc, loc) {
     let id = new URLSearchParams(loc.search).get('jobId') || (/\/job\/(\d+)/.exec(loc.pathname) || [])[1];
     // Recommendation/home pages can show a selected job without changing the page URL.
-    // Prefer the title link so we save the actual job instead of the generic JobStreet page.
+    // Prefer the title link so we save the actual job instead of the generic Jobstreet page.
     if (!id) {
       const titleLink = doc.querySelector('[data-automation="job-detail-title"] a[href]');
       const href = titleLink && titleLink.getAttribute('href');

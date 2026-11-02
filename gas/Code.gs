@@ -19,9 +19,6 @@ const SHEET_NAME = 'Applications';
 const HEADER_ROW = 6;
 const DATA_START_ROW = HEADER_ROW + 1;
 
-const STATUSES = ['To Apply', 'Applied', 'OA / Assessment', 'Interview', 'Offer', 'Rejected', 'Withdrawn'];
-const DEFAULT_STATUS = 'Applied';
-
 /**
  * Column schema. This is the single source of truth for columns.
  *
@@ -153,8 +150,8 @@ function validateJob_(body) {
   if (!job.company) throw new ApiError('missing_fields', 'Company is required.');
   if (!job.role) throw new ApiError('missing_fields', 'Role is required.');
 
-  job.status = normalizeText_(body.status) || DEFAULT_STATUS;
-  if (STATUSES.indexOf(job.status) === -1) throw new ApiError('invalid_request', 'Unknown status: ' + job.status);
+  job.status = normalizeText_(body.status);
+  if (!job.status) throw new ApiError('missing_fields', 'Status is required.');
 
   job.date = normalizeText_(body.date) || todayIso_();
   if (!isValidIsoDate_(job.date)) throw new ApiError('invalid_request', 'Date must look like 2026-09-20.');
@@ -254,7 +251,7 @@ function normalizeKey_(value) {
 
 /**
  * Reduce a job URL to something comparable.
- * LinkedIn / JobStreet URLs collapse to their job id, so a pasted
+ * LinkedIn / Jobstreet URLs collapse to their job id, so a pasted
  * ".../jobs/view/123/?trackingId=..." matches the extension's canonical URL.
  * Other sites: lowercase, no protocol / www / #fragment / tracking params / trailing slash.
  * (Apps Script has no URL class, so this is string-based.)

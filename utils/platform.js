@@ -14,7 +14,7 @@ export const PLATFORMS = [
   },
   {
     key: 'jobstreet',
-    name: 'JobStreet',
+    name: 'Jobstreet',
     // my.jobstreet.com, sg.jobstreet.com, jobstreet.com.my, ...
     hostPattern: /(^|\.)jobstreet\.[a-z.]+$/i,
     extractor: 'content/extractors/jobstreet.js',

@@ -15,7 +15,7 @@ There is no Node.js dependency installation for the current repository: it has n
 1. Clone or open this repository in your editor.
 2. In Chrome, visit `chrome://extensions` and enable **Developer mode**.
 3. Choose **Load unpacked** and select the repository root, the folder containing `manifest.json`.
-4. Open a LinkedIn or JobStreet job listing, refresh it if it was already open, then click the RoleTrack toolbar icon.
+4. Open a LinkedIn or Jobstreet job listing, refresh it if it was already open, then click the RoleTrack toolbar icon.
 5. Edit a field and use **Sync only** after configuring the optional Sheets backend. Use **Re-scan** to rerun extraction after the listing loads.
 
 After editing extension files, return to `chrome://extensions`, click **Reload** on RoleTrack, and refresh the job listing tab. Content scripts already injected in a page keep the old code until the page is refreshed.
@@ -37,13 +37,15 @@ When you change `gas/Code.gs`, save and deploy a **new version** from **Deploy â
 | `sidepanel/sidepanel.html`, `sidepanel/sidepanel.js`, `sidepanel/sidepanel.css` | Tracker form, settings, extraction coordination, sync actions, and helper controls. |
 | `content/extractors/` | Site-specific and generic job-field extraction. `utils/platform.js` maps supported hosts to extractors. |
 | `content/content.js`, `content.js`, `content.css` | Page-side extraction entry point, injected highlight behavior, and highlight styling. |
-| `content/jobstreet-qa-helper.js` | JobStreet Quick Apply controller, page overlay, question handling, and submit flow. |
+| `content/jobstreet-qa-helper.js` | Jobstreet Quick Apply controller, page overlay, question handling, and submit flow. |
 | `services/api.js` | POST requests to the Apps Script Web App, including timeout and response handling. |
 | `utils/storage.js` | Local extension configuration storage and Apps Script URL validation. |
 | `utils/` | Shared platform, date, URL, and storage helpers. |
 | `gas/Code.gs` | Spreadsheet schema, API key validation, duplicate detection, and row writes. |
 
-For a new job site, begin with the extension host access and content-script match patterns in `manifest.json`, then add a site extractor and register it in `utils/platform.js`. Keep site-specific selectors inside its extractor. For JobStreet markup changes, the Quick Apply selectors are grouped near the top of `content/jobstreet-qa-helper.js`.
+For a new job site, begin with the extension host access and content-script match patterns in `manifest.json`, then add a site extractor and register it in `utils/platform.js`. Keep site-specific selectors inside its extractor. For Jobstreet markup changes, the Quick Apply selectors are grouped near the top of `content/jobstreet-qa-helper.js`.
+
+To customize the status choices, edit `STATUSES` and `DEFAULT_STATUS` in `utils/status.js`. The extension uses this shared config, while the Apps Script backend accepts any non-empty status, so no matching edit in `gas/Code.gs` is needed.
 
 ## 5. Safe development loop
 

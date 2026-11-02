@@ -1,4 +1,4 @@
-// JobStreet Quick Apply Helper — content script (v0.2.0)
+// Jobstreet Quick Apply Helper — content script (v0.2.0)
 //
 // Job page / side panel : Sync + Quick Apply or Alt+A -> opens the Quick Apply tab.
 //                         Optional auto start: stay on a Quick Apply job for 3s -> opens it.
@@ -22,7 +22,7 @@
   const SUBMIT_COUNTDOWNS = [0, 3, 5, 10];
   const SEC = TEST ? 10 : 1000;
 
-  // All selectors live here. If JobStreet changes its markup, edit this block only.
+  // All selectors live here. If Jobstreet changes its markup, edit this block only.
   const SEL = {
     applyBtn: 'a[data-automation="job-detail-apply"]',
     continueBtn: 'button[data-testid="continue-button"]',
@@ -131,7 +131,7 @@
     stopped = true;
     clearTimeout(autoTimer);
     highlight(null);
-    setStatus('Submit clicked. Check JobStreet for confirmation.');
+    setStatus('Submit clicked. Check Jobstreet for confirmation.');
     stopBtn.hidden = false;
     stopBtn.disabled = false;
     stopBtn.textContent = 'Close tab';
@@ -209,7 +209,7 @@
 
   function findQuickApply() {
     const id = getCurrentJobId();
-    if (!id) return { ok: false, reason: 'Open a specific JobStreet job first.' };
+    if (!id) return { ok: false, reason: 'Open a specific Jobstreet job first.' };
 
     const a = [...document.querySelectorAll(SEL.applyBtn)].find((el) =>
       (el.getAttribute('href') || '').includes(`/job/${id}/apply`)
@@ -311,7 +311,7 @@
       qs.push({ id: fs.id, el: fs, label: labelOf(fs), answered: !!fs.querySelector('input[type="radio"]:checked') });
     });
 
-    // <select> has no placeholder on JobStreet, so "has a value" does not prove it was answered.
+    // <select> has no placeholder on Jobstreet, so "has a value" does not prove it was answered.
     // First time we see a given question id we ask you to confirm it, then remember it.
     document.querySelectorAll(SEL.select).forEach((s) => {
       const hasValue = s.selectedIndex >= 0 && s.value !== '';

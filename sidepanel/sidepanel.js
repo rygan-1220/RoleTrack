@@ -6,10 +6,8 @@ import { todayISO, formatDisplay } from '../utils/date.js';
 import { getConfig, saveConfig, isConfigured, isValidApiUrl } from '../utils/storage.js';
 import { cleanJobUrl } from '../utils/url.js';
 import { syncJob, pingApi } from '../services/api.js';
+import { STATUSES, DEFAULT_STATUS } from '../utils/status.js';
 
-// Keep in sync with STATUSES in gas/Code.gs (the backend rejects anything not in its list).
-const STATUSES = ['To Apply', 'Applied', 'OA / Assessment', 'Interview', 'Offer', 'Rejected', 'Withdrawn'];
-const DEFAULT_STATUS = 'Applied';
 const DRAFTS_KEY = 'jobTrackerDrafts';
 
 // Fields the page extraction can fill (each one gets a "read from page" dot).
@@ -183,7 +181,7 @@ function showExperience(result) {
   $('show-experience').hidden = !range;
   if (!result?.available) {
     $('experience-summary').textContent = state.platform?.key === 'generic'
-      ? 'Experience highlighting is available on LinkedIn and JobStreet.'
+      ? 'Experience highlighting is available on LinkedIn and Jobstreet.'
       : 'Open a job description, then click Re-scan.';
   } else if (!range) {
     $('experience-summary').textContent = 'No experience requirement detected.';
@@ -264,15 +262,15 @@ function validate(job) {
 
 async function startQuickApply() {
   if (!state.tab?.id || state.platform?.key !== 'jobstreet') {
-    setBanner('warn', 'Saved to Google Sheets. Open a JobStreet Quick Apply listing to start the application.');
+    setBanner('warn', 'Saved to Google Sheets. Open a Jobstreet Quick Apply listing to start the application.');
     return;
   }
   try {
     const result = await chrome.tabs.sendMessage(state.tab.id, { type: 'roletrack-start-quick-apply' });
-    if (result?.ok) setBanner('success', 'Saved to Sheets. Opening JobStreet Quick Apply…');
+    if (result?.ok) setBanner('success', 'Saved to Sheets. Opening Jobstreet Quick Apply…');
     else setBanner('warn', `Saved to Sheets. ${result?.message || 'Quick Apply could not be started.'}`);
   } catch {
-    setBanner('warn', 'Saved to Sheets, but the JobStreet helper is unavailable. Reload RoleTrack and refresh the job tab.');
+    setBanner('warn', 'Saved to Sheets, but the Jobstreet helper is unavailable. Reload RoleTrack and refresh the job tab.');
   }
 }
 

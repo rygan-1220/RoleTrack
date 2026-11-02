@@ -1,5 +1,5 @@
 // Generic URL cleanup for sites without a dedicated extractor.
-// LinkedIn / JobStreet URLs are already canonicalised inside their extractors.
+// LinkedIn / Jobstreet URLs are already canonicalised inside their extractors.
 
 const TRACKING_PARAM = /^(utm_.*|fbclid|gclid|msclkid|mc_[a-z]+|ref|refid|referrer|trk|trackingid|tracking|src|source|campaign)$/i;
 

@@ -4,11 +4,11 @@
 
 ## ✨ Features
 
-- Extracts job details from LinkedIn and JobStreet listings.
+- Extracts job details from LinkedIn and Jobstreet listings.
 - Highlights experience requirements and summarizes detected years and mentions.
 - Saves reviewed applications to a Google Sheet through your own Google Apps Script backend.
 - Checks for likely duplicates before adding an application.
-- Includes a JobStreet Quick Apply helper that guides application steps and pauses for unanswered questions.
+- Includes a Jobstreet Quick Apply helper that guides application steps and pauses for unanswered questions.
 - Keeps a separate temporary draft for each tab and job while the side panel is open.
 - Supports manual entry on other sites and pages the extension cannot access.
 
@@ -38,9 +38,9 @@ The extension stores these settings locally in the browser. Existing rows and du
 
 ## 🧭 Use RoleTrack
 
-1. Open a LinkedIn or JobStreet job listing and click the RoleTrack icon.
+1. Open a LinkedIn or Jobstreet job listing and click the RoleTrack icon.
 2. Review the extracted company, role, salary, location, employment type, URL, and job description. Fill in anything missing.
-3. Choose an application status and date, add notes if useful. **Sync + Quick Apply** is the primary action at the top; after a successful sync, RoleTrack opens the JobStreet Quick Apply flow. Choose the green **Sync only** action below it to save without opening Quick Apply.
+3. Choose an application status and date, add notes if useful. **Sync + Quick Apply** is the primary action at the top; after a successful sync, RoleTrack opens the Jobstreet Quick Apply flow. Choose the green **Sync only** action below it to save without opening Quick Apply.
 4. If RoleTrack finds a duplicate, choose **Cancel** to stop or **Add anyway** to save the duplicate and then continue to Quick Apply.
 5. The helper pauses for new questions and requests confirmation for prefilled dropdown answers. **Settings → Dry run** is on by default, so it stops at Review without submitting. Turn it off to allow submission after the locally saved 0-, 3-, 5-, or 10-second countdown; the controller badge shows the live countdown. **Auto start** is off by default; when enabled, it opens Quick Apply after you stay on a Quick Apply job for three seconds. Start manually with **Sync + Quick Apply** or **Alt+A**; the controller shows status and a Stop button, then offers **Close tab** after Submit is clicked.
 
@@ -54,13 +54,13 @@ The generic extractor may work on other websites when Chrome has granted the ext
 
 ## 🔐 Permissions and data
 
-RoleTrack uses Chrome's `sidePanel`, `tabs`, `activeTab`, `scripting`, and `storage` permissions to open the panel, identify the active page, read supported listings, and save local settings. Persistent page access is limited to LinkedIn job pages and JobStreet. Google Apps Script hosts are permitted for syncing. The tracker writes to the spreadsheet only when you choose **Sync + Quick Apply** or **Add anyway**. The separately controlled JobStreet helper can advance Quick Apply steps; its dry-run setting is on by default and prevents the final submission.
+RoleTrack uses Chrome's `sidePanel`, `tabs`, `activeTab`, `scripting`, and `storage` permissions to open the panel, identify the active page, read supported listings, and save local settings. Persistent page access is limited to LinkedIn job pages and Jobstreet. Google Apps Script hosts are permitted for syncing. The tracker writes to the spreadsheet only when you choose **Sync + Quick Apply** or **Add anyway**. The separately controlled Jobstreet helper can advance Quick Apply steps; its dry-run setting is on by default and prevents the final submission.
 
 ## 🛠️ Troubleshooting
 
 | Issue | What to try |
 | --- | --- |
-| A listing is not extracted | Refresh the tab, open a LinkedIn or JobStreet job listing, then select **Re-scan**. You can also enter details manually. |
+| A listing is not extracted | Refresh the tab, open a LinkedIn or Jobstreet job listing, then select **Re-scan**. You can also enter details manually. |
 | Chrome says the extension cannot access a page | Some pages do not allow extension access. Use manual entry, or click the extension icon on the desired tab and try **Re-scan**. |
 | Sync fails | Check the Web App URL and API key in **Settings**, confirm the Apps Script deployment is available, then use **Test connection**. |
 | Highlights are missing or incomplete | Re-scan after the job description loads. Detection depends on numeric year mentions near experience-related wording and can vary with page layout. |

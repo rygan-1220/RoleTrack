@@ -68,7 +68,7 @@
 
   /**
    * Resolve with check()'s value as soon as it is truthy, or null after timeoutMs.
-   * LinkedIn/JobStreet render job details after the initial load, so we wait for the
+   * LinkedIn/Jobstreet render job details after the initial load, so we wait for the
    * title to exist. A MutationObserver means no polling loop.
    */
   function waitFor(check, timeoutMs = 3000) {

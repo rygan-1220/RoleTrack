@@ -32,7 +32,7 @@ Defined once, in `SCHEMA` at the top of `Code.gs`:
 | Company | `company` | required |
 | Role | `role` | required |
 | Platform | `platform` | |
-| Status | `status` | one of `STATUSES`, default *To Apply* |
+| Status | `status` | free text supplied by the extension; required |
 | Salary | `salary` | free text |
 | Location | `location` | |
 | Employment Type | `employmentType` | |
@@ -42,6 +42,10 @@ Defined once, in `SCHEMA` at the top of `Code.gs`:
 | Created At / Updated At | | set by the script |
 
 Columns are matched by **header text** (or an alias such as *Position* for Role), so their order doesn't matter, and other columns you add are left alone. Change `SHEET_NAME` if your tab isn't called `Applications`.
+
+### Customizing statuses
+
+Edit `STATUSES` and `DEFAULT_STATUS` in the extension's [`utils/status.js`](../utils/status.js). The side panel uses that single list to show and validate choices. The Apps Script backend accepts any non-empty status, so you do not need to keep a second list in `Code.gs`. Reload the unpacked extension after editing. Existing sheet rows are not changed.
 
 ### Using an existing sheet
 
@@ -78,7 +82,7 @@ Responses (always HTTP 200 with JSON; look at `success`):
 
 ## Duplicate rules
 
-An entry is a duplicate only when **job URL, company name, and role/position all match** after normalization. The check will not flag a shared URL by itself or a shared company and role with a different URL. LinkedIn and JobStreet URLs reduce to their job id (so `…/jobs/view/123/?trackingId=…` matches `…?currentJobId=123`); other URLs lose tracking parameters, `#fragment`, `www.` and trailing slashes. Company and role are compared after lowercasing and treating punctuation as spaces (`ABC Tech Sdn. Bhd.` = `abc tech sdn bhd`). Nothing is ever overwritten: the client decides between *Cancel* and *Add anyway*.
+An entry is a duplicate only when **job URL, company name, and role/position all match** after normalization. The check will not flag a shared URL by itself or a shared company and role with a different URL. LinkedIn and Jobstreet URLs reduce to their job id (so `…/jobs/view/123/?trackingId=…` matches `…?currentJobId=123`); other URLs lose tracking parameters, `#fragment`, `www.` and trailing slashes. Company and role are compared after lowercasing and treating punctuation as spaces (`ABC Tech Sdn. Bhd.` = `abc tech sdn bhd`). Nothing is ever overwritten: the client decides between *Cancel* and *Add anyway*.
 
 ## Security notes
 
