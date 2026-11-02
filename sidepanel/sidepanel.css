@@ -56,7 +56,7 @@ body {
   background: var(--bg);
   color: var(--ink);
   font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
-  padding-bottom: 88px;
+  padding-bottom: 136px;
 }
 
 [hidden] { display: none !important; }
@@ -200,6 +200,7 @@ body {
 /* ---------- buttons ---------- */
 
 .foot { position: fixed; z-index: 2; inset: auto 0 0; padding: 10px 14px max(12px, env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); }
+.sync-actions { display: grid; gap: 8px; }
 .foot-row { display: flex; gap: 8px; }
 .foot-row button { flex: 1; }
 
@@ -217,10 +218,24 @@ body {
 .primary:hover:not(:disabled) { filter: brightness(1.06); }
 .secondary { background: transparent; border: 1px solid var(--line); color: var(--ink); }
 .secondary:hover:not(:disabled) { border-color: var(--muted); }
+.sync-only {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 0;
+  background: var(--ok-bg);
+  color: var(--ok-ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sync-only:hover:not(:disabled) { filter: brightness(0.96); }
 .primary:disabled,
-.secondary:disabled { cursor: default; opacity: 0.65; }
+.secondary:disabled,
+.sync-only:disabled { cursor: default; opacity: 0.65; }
 .primary:focus-visible,
 .secondary:focus-visible,
+.sync-only:focus-visible,
 .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 #sync[data-state="failed"] { background: var(--err-ink); border-color: var(--err-ink); color: #fff; opacity: 1; cursor: pointer; }
@@ -259,6 +274,21 @@ body {
 
 .help { margin: 10px 14px 0; color: var(--muted); font-size: 12px; }
 .help code { font-size: 11.5px; }
+.quick-apply-settings { margin: 18px 14px 78px; }
+.quick-apply-settings .section-title { margin: 0 0 8px; }
+.preference-row { display: grid; grid-template-columns: 18px 1fr; gap: 8px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.preference-row input { width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--accent); }
+.preference-row strong { display: block; color: var(--ink); font-size: 12.5px; }
+.preference-help { display: block; margin-top: 3px; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.countdown-setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.countdown-setting label { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.countdown-setting select { min-width: 136px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 0; background: var(--surface); color: var(--ink); font: inherit; }
+.countdown-setting select,
+#f-status { color-scheme: dark; }
+.countdown-setting select option,
+#f-status option { background: #18181b; color: #e4e4e7; }
+.countdown-setting .preference-help { grid-column: 1 / -1; }
+.preference-status { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }

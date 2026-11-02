@@ -1,13 +1,13 @@
 // JobStreet Quick Apply Helper — content script (v0.2.0)
 //
-// Job page / side panel : Alt+A (or the on-screen button) -> opens the Quick apply tab.
-//                         Optional "auto start": stay on a Quick apply job for 3s -> opens it.
+// Job page / side panel : Sync + Quick Apply or Alt+A -> opens the Quick Apply tab.
+//                         Optional auto start: stay on a Quick Apply job for 3s -> opens it.
 // Apply tab             : walks the steps. Clicks Continue when everything is answered,
 //                         pauses on new questions, opens the cover-letter file dialog,
-//                         continues once a cover letter is attached, and at the Review page
-//                         clicks "Submit application" (5s countdown) — only when DRY RUN is off.
-// DRY RUN (checkbox on the overlay, ON by default): everything runs as normal EXCEPT the final
-// "Submit application" click, which is never made. Untick it to allow submitting.
+//                         continues once a cover letter is attached, and can submit at Review
+//                         after the configured countdown — only when DRY RUN is off.
+// DRY RUN (in RoleTrack Settings, ON by default): everything runs as normal EXCEPT the final
+// "Submit application" click, which is never made. Turn it off to allow submitting.
 
 (() => {
   'use strict';
@@ -15,11 +15,11 @@
   window.__qaLoaded = true;
 
   const TEST = !!window.__QA_TEST; // shrinks delays in the sandbox test
-  const DAILY_LIMIT = 20;
   const ARM_TTL = 2 * 60 * 1000;
   const MAX_STEPS = 12;
   const AUTO_DWELL = TEST ? 30 : 3000;
-  const SUBMIT_COUNTDOWN = TEST ? 3 : 5;
+  const DEFAULT_SUBMIT_COUNTDOWN = 5;
+  const SUBMIT_COUNTDOWNS = [0, 3, 5, 10];
   const SEC = TEST ? 10 : 1000;
 
   // All selectors live here. If JobStreet changes its markup, edit this block only.
@@ -60,17 +60,18 @@
   let stopped = false;
   let stepsDone = 0;
   let flowStarted = false;
-  let box, msgEl, confirmBtn, startBtn, dryChk, autoChk, autoWrap, hl;
+  let box, msgEl, dryStatusEl, confirmBtn, stopBtn, hl;
+  let countdownRemaining = null;
+  let dryStatusRevision = 0;
+
+  let watchedId = null;
+  let autoTimer = null;
 
   // cover-letter step state
   let coverBaseline = null; // filenames visible when we first saw the Upload button
   let coverSkipped = false;
   let uploadTried = false;
   let gestureHandler = null;
-
-  // job-page auto start state
-  let watchedId = null;
-  let autoTimer = null;
 
   /* ---------------- overlay ---------------- */
 
@@ -81,65 +82,84 @@
     }
     box = document.createElement('div');
     box.setAttribute('data-qa', 'overlay');
-    box.style.cssText =
-      'position:fixed;right:16px;bottom:16px;z-index:2147483647;background:#222;color:#fff;' +
-      'padding:10px 12px;border-radius:8px;font:13px/1.4 sans-serif;max-width:280px;';
+    const header = document.createElement('div');
+    header.setAttribute('data-qa', 'header');
+    const title = document.createElement('strong');
+    title.textContent = 'Quick Apply';
+    dryStatusEl = document.createElement('span');
+    dryStatusEl.setAttribute('data-qa', 'dry-status');
+    header.append(title, dryStatusEl);
 
     msgEl = document.createElement('div');
     msgEl.setAttribute('data-qa', 'msg');
+    msgEl.setAttribute('role', 'status');
+    msgEl.setAttribute('aria-live', 'polite');
 
     confirmBtn = document.createElement('button');
     confirmBtn.setAttribute('data-qa', 'confirm');
-    confirmBtn.style.cssText = 'margin-top:6px;margin-right:6px;display:none;';
+    confirmBtn.hidden = true;
     confirmBtn.onclick = onConfirm;
 
-    startBtn = document.createElement('button');
-    startBtn.setAttribute('data-qa', 'start');
-    startBtn.textContent = '▶ 开始投递（Alt+A）';
-    startBtn.style.cssText = 'margin-top:6px;margin-right:6px;';
-    startBtn.onclick = start;
-
-    const stopBtn = document.createElement('button');
+    stopBtn = document.createElement('button');
     stopBtn.setAttribute('data-qa', 'stop');
-    stopBtn.textContent = '停止';
-    stopBtn.style.cssText = 'margin-top:6px;';
-    stopBtn.onclick = () => stop('已停止');
+    stopBtn.dataset.action = 'stop';
+    stopBtn.textContent = 'Stop application';
+    stopBtn.hidden = true;
+    stopBtn.onclick = () => stop('Stopped.');
 
-    const dryWrap = document.createElement('label');
-    dryWrap.style.cssText = 'display:block;margin-top:6px;font-size:12px;';
-    dryChk = document.createElement('input');
-    dryChk.type = 'checkbox';
-    dryChk.setAttribute('data-qa', 'dry');
-    dryChk.checked = true;
-    dryChk.onchange = () => store.set({ dryRun: dryChk.checked });
-    dryWrap.append(dryChk, ' 试运行（照常点 Continue，但不点 Submit）');
-
-    autoWrap = document.createElement('label');
-    autoWrap.style.cssText = 'display:block;margin-top:4px;font-size:12px;';
-    autoChk = document.createElement('input');
-    autoChk.type = 'checkbox';
-    autoChk.setAttribute('data-qa', 'auto');
-    autoChk.checked = false;
-    autoChk.onchange = () => store.set({ autoStart: autoChk.checked });
-    autoWrap.append(autoChk, ' 自动开始（停留 3 秒的 Quick apply 职位）');
-
-    box.append(msgEl, confirmBtn, startBtn, stopBtn, dryWrap, autoWrap);
+    box.append(header, msgEl, confirmBtn, stopBtn);
     document.body.appendChild(box);
-
-    Promise.all([store.get('dryRun'), store.get('autoStart')]).then(([d, a]) => {
-      dryChk.checked = d.dryRun !== false;
-      autoChk.checked = a.autoStart === true;
-    });
+    refreshDryStatus();
   }
 
-  function setStatus(msg, showConfirm = false, confirmLabel = '确认并继续') {
+  function setStatus(msg, showConfirm = false, confirmLabel = 'Continue') {
     ensureOverlay();
     msgEl.textContent = msg;
     confirmBtn.textContent = confirmLabel;
-    confirmBtn.style.display = showConfirm ? 'inline-block' : 'none';
-    const onApply = isApplyPage();
-    startBtn.style.display = onApply ? 'none' : 'inline-block';
-    autoWrap.style.display = onApply ? 'none' : 'block';
+    confirmBtn.hidden = !showConfirm;
+    stopBtn.hidden = !isApplyPage();
+    stopBtn.disabled = stopped;
+    stopBtn.textContent = stopped ? 'Stopped' : 'Stop application';
+    stopBtn.dataset.action = 'stop';
+    stopBtn.onclick = () => stop('Stopped.');
+    refreshDryStatus();
+  }
+
+  function showCloseTabAction() {
+    stopped = true;
+    clearTimeout(autoTimer);
+    highlight(null);
+    setStatus('Submit clicked. Check JobStreet for confirmation.');
+    stopBtn.hidden = false;
+    stopBtn.disabled = false;
+    stopBtn.textContent = 'Close tab';
+    stopBtn.dataset.action = 'close';
+    dryStatusRevision++;
+    dryStatusEl.textContent = 'DRY RUN: OFF · LIVE · SENT';
+    dryStatusEl.dataset.mode = 'live';
+    stopBtn.onclick = () => {
+      chrome.runtime.sendMessage({ type: 'roletrack-close-current-tab' }).catch(() => {
+        setStatus('Could not close this tab. Close it from the browser controls.');
+      });
+    };
+  }
+
+  async function refreshDryStatus() {
+    if (!dryStatusEl) return;
+    const revision = ++dryStatusRevision;
+    if (await isDry()) {
+      if (revision !== dryStatusRevision) return;
+      countdownRemaining = null;
+      dryStatusEl.textContent = 'DRY RUN: ON · SAFE';
+      dryStatusEl.dataset.mode = 'safe';
+      return;
+    }
+    const seconds = countdownRemaining ?? await getSubmitCountdown();
+    if (revision !== dryStatusRevision) return;
+    dryStatusEl.textContent = seconds === 0
+      ? 'DRY RUN: OFF · LIVE · NOW'
+      : `DRY RUN: OFF · LIVE · ${seconds}s`;
+    dryStatusEl.dataset.mode = 'live';
   }
 
   function highlight(el) {
@@ -160,6 +180,11 @@
 
   const isDry = async () => (await store.get('dryRun')).dryRun !== false;
   const isAuto = async () => (await store.get('autoStart')).autoStart === true;
+  async function getSubmitCountdown() {
+    const { submitCountdownSeconds } = await store.get('submitCountdownSeconds');
+    const seconds = Number(submitCountdownSeconds);
+    return SUBMIT_COUNTDOWNS.includes(seconds) ? seconds : DEFAULT_SUBMIT_COUNTDOWN;
+  }
 
   /* ---------------- job page / side panel: entry ---------------- */
 
@@ -182,27 +207,14 @@
 
   function findQuickApply() {
     const id = getCurrentJobId();
-    if (!id) return { ok: false, reason: '页面上没有找到申请按钮，请先点开一个职位' };
+    if (!id) return { ok: false, reason: 'Open a specific JobStreet job first.' };
 
     const a = [...document.querySelectorAll(SEL.applyBtn)].find((el) =>
       (el.getAttribute('href') || '').includes(`/job/${id}/apply`)
     );
-    if (!a) return { ok: false, reason: '没有找到这个职位的申请按钮（可能已申请或已关闭）' };
-    if (!/quick apply/i.test(a.textContent)) return { ok: false, reason: '不是 Quick apply，已跳过' };
+    if (!a) return { ok: false, reason: 'No Apply button is available for this job.' };
+    if (!/quick apply/i.test(a.textContent)) return { ok: false, reason: 'This job does not use Quick Apply.' };
     return { ok: true, a, id };
-  }
-
-  const today = () => new Date().toISOString().slice(0, 10);
-
-  async function withinDailyLimit() {
-    const { daily } = await store.get('daily');
-    return !daily || daily.date !== today() || daily.count < DAILY_LIMIT;
-  }
-
-  async function bumpDaily() {
-    const { daily } = await store.get('daily');
-    const count = daily && daily.date === today() ? daily.count + 1 : 1;
-    await store.set({ daily: { date: today(), count } });
   }
 
   async function markTried(id) {
@@ -218,20 +230,49 @@
       setStatus(r.reason);
       return { ok: false, message: r.reason };
     }
-    if (!(await withinDailyLimit())) {
-      const message = `已达今日上限（${DAILY_LIMIT}）`;
-      setStatus(message);
-      return { ok: false, message };
-    }
-
     await store.set({ armed: { jobId: r.id, ts: Date.now() } });
-    await bumpDaily();
     await markTried(r.id);
-    setStatus('即将打开申请页…');
+    setStatus('Opening Quick Apply…');
     await sleep(rand(300, 900)); // keep short so the key press' user activation is still valid
     r.a.click();
     return { ok: true };
   }
+
+  async function autoStartCheck(id) {
+    if (stopped || isApplyPage() || !(await isAuto())) return;
+    for (let i = 0; ; i++) {
+      if (getCurrentJobId() !== id || !(await isAuto())) return;
+      if (findQuickApply().ok) break;
+      if (i >= 5) return;
+      await sleep(SEC);
+    }
+    const { tried = [] } = await store.get('tried');
+    if (tried.includes(id)) return;
+    const { armed } = await store.get('armed');
+    if (armed && Date.now() - armed.ts < ARM_TTL) return;
+    await start();
+  }
+
+  function onJobMutation() {
+    if (isApplyPage()) return;
+    const id = getCurrentJobId();
+    if (id === watchedId) return;
+    watchedId = id;
+    clearTimeout(autoTimer);
+    if (id) autoTimer = setTimeout(() => autoStartCheck(id), AUTO_DWELL);
+  }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local') return;
+    if (changes.dryRun || changes.submitCountdownSeconds) refreshDryStatus();
+    if (changes.autoStart) {
+      clearTimeout(autoTimer);
+      if (changes.autoStart.newValue === true) {
+        watchedId = null;
+        onJobMutation();
+      }
+    }
+  });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== 'roletrack-start-quick-apply') return;
@@ -246,31 +287,6 @@
     },
     true // capture: still fires if the page stops the event further down
   );
-
-  // Auto start: the job panel re-renders when you pick another job, so watch the DOM / URL.
-  async function autoStartCheck(id) {
-    if (stopped || isApplyPage() || !(await isAuto())) return;
-    for (let i = 0; ; i++) {
-      if (getCurrentJobId() !== id) return; // you moved on
-      if (findQuickApply().ok) break;
-      if (i >= 5) return; // not Quick apply / panel never rendered: leave it alone
-      await sleep(SEC);
-    }
-    const { tried = [] } = await store.get('tried');
-    if (tried.includes(id)) return;
-    const { armed } = await store.get('armed');
-    if (armed && Date.now() - armed.ts < ARM_TTL) return; // one apply tab at a time
-    await start();
-  }
-
-  function onJobMutation() {
-    if (isApplyPage()) return;
-    const id = getCurrentJobId();
-    if (id === watchedId) return;
-    watchedId = id;
-    clearTimeout(autoTimer);
-    if (id) autoTimer = setTimeout(() => autoStartCheck(id), AUTO_DWELL);
-  }
 
   /* ---------------- apply tab: reading the page ---------------- */
 
@@ -413,7 +429,7 @@
   async function reviewStep(btn) {
     highlight(null);
     if (await isDry()) {
-      setStatus('[试运行] 已到 Review 页：试运行不会提交。要提交请取消勾选「试运行」');
+      setStatus('Review reached. Dry run is on, so nothing was submitted.');
       return false;
     }
     const jobId = jobIdOfApplyPage();
@@ -422,17 +438,26 @@
       done = sessionStorage.getItem('qa_submitted') === jobId;
     } catch (_) {}
     if (done) {
-      stop('这个职位已经提交过了，不再重复点击');
+      stop('Already submitted for this job.');
       return false;
     }
 
-    for (let s = SUBMIT_COUNTDOWN; s > 0; s--) {
-      setStatus(`${s} 秒后提交申请…点「停止」可取消`);
+    const submitCountdown = TEST ? 3 : await getSubmitCountdown();
+    for (let s = submitCountdown; s > 0; s--) {
+      countdownRemaining = s;
+      setStatus('Submitting application… Stop to cancel.');
+      await refreshDryStatus();
       await sleep(SEC);
       if (stopped) return false;
+      if (await isDry()) {
+        countdownRemaining = null;
+        setStatus('Dry run was turned on. Submission cancelled.');
+        return false;
+      }
     }
+    countdownRemaining = null;
     if (await isDry()) {
-      setStatus('[试运行] 已改回试运行，不提交');
+      setStatus('Dry run was turned on. Submission cancelled.');
       return false;
     }
     const b = document.querySelector(SEL.submitBtn) || btn;
@@ -441,7 +466,7 @@
     } catch (_) {}
     b.click();
     await store.set({ lastSubmitted: { jobId, ts: Date.now() } });
-    stop('已点击 Submit application，请确认是否投递成功');
+    showCloseTabAction();
     return false;
   }
 
@@ -463,9 +488,9 @@
         up.click(); // may be blocked by Chrome (no user gesture); the gesture hook above is the fallback
       }
       setStatus(
-        'cover letter：已尝试自动点 Upload。没弹出文件窗口的话，按任意键或点一下页面即可打开。选好文件后会自动继续；如果选好了却没反应，点下面的按钮（不想附 cover letter 也点它）',
+        'Attach a cover letter, or continue without one. If the file picker did not open, press Alt+U.',
         true,
-        '已选好 / 跳过，继续'
+        'Continue / skip'
       );
       return false;
     }
@@ -473,7 +498,7 @@
     // 3) a normal step
     const cont = document.querySelector(SEL.continueBtn);
     if (!cont) {
-      setStatus('没有找到 Continue / Submit 按钮：页面载入中，或是未识别的页面');
+      setStatus('Continue button not found. Wait for the page to finish loading.');
       return false;
     }
 
@@ -482,32 +507,32 @@
     const empty = qs.find((q) => !q.answered && !q.needsConfirm);
     if (empty) {
       highlight(empty.el);
-      setStatus(`有新问题需要你回答（第 ${qs.indexOf(empty) + 1}/${qs.length} 题：${empty.label || empty.id}）`);
+      setStatus(`Answer required: ${empty.label || 'new question'}`);
       return false;
     }
 
     const toConfirm = qs.filter((q) => q.needsConfirm);
     if (toConfirm.length) {
       highlight(toConfirm[0].el);
-      setStatus('首次遇到这些下拉题，请确认预填的答案是对的', true);
+      setStatus('Confirm the prefilled answer before continuing.', true);
       return false;
     }
 
     const missing = requiredEmpty();
     if (missing) {
       highlight(missing);
-      setStatus('这一步有必填栏位还是空的，请填写');
+      setStatus('Complete the required field to continue.');
       return false;
     }
 
     // 4) everything answered (or nothing to answer, e.g. Skills / Education): go on
     highlight(null);
     if (stepsDone >= MAX_STEPS) {
-      stop(`已超过 ${MAX_STEPS} 步，疑似不是普通 Quick Apply，已停止`);
+      stop(`Stopped after ${MAX_STEPS} steps. Please review this application manually.`);
       return false;
     }
 
-    setStatus('运行中…');
+    setStatus('Checking this step…');
     const sig = pageSig(qs);
     const errBefore = errorCount();
     await sleep(rand(1500, 4000));
@@ -530,11 +555,11 @@
       moved = await waitSigChange(sig, TEST ? 300 : 5000);
     }
     if (!moved) {
-      stop('点了 Continue 但页面没变，可能有错误提示或文件还没传完，已停止');
+      stop('Step did not advance. Check the page and continue manually.');
       return false;
     }
     if (errorCount() > errBefore) {
-      stop('点 Continue 之后出现了错误提示，已停止，请检查');
+      stop('A validation error appeared. Review the highlighted fields.');
       return false;
     }
 
@@ -556,7 +581,7 @@
       advanced = await step();
     } catch (err) {
       console.error('[QA]', err);
-      stop('脚本出错，已停止（见控制台）');
+      stop('Helper error. Check the page or reload the extension.');
     } finally {
       busy = false;
     }
@@ -642,7 +667,7 @@
   maybeResume().then(() => {
     if (isApplyPage()) return;
     if (!(msgEl && msgEl.textContent)) {
-      setStatus('已就绪：打开一个 Quick apply 职位，按 Alt+A 或点下面的按钮');
+      setStatus('Ready. Use Sync + Quick Apply or press Alt+A.');
     }
     new MutationObserver(onJobMutation).observe(document.body, { childList: true, subtree: true });
     onJobMutation();

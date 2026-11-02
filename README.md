@@ -40,9 +40,9 @@ The extension stores these settings locally in the browser. Existing rows and du
 
 1. Open a LinkedIn or JobStreet job listing and click the RoleTrack icon.
 2. Review the extracted company, role, salary, location, employment type, URL, and job description. Fill in anything missing.
-3. Choose an application status and date, add notes if useful, then select **Sync + Quick Apply**. After a successful sync, RoleTrack opens the JobStreet Quick Apply flow.
+3. Choose an application status and date, add notes if useful. **Sync + Quick Apply** is the primary action at the top; after a successful sync, RoleTrack opens the JobStreet Quick Apply flow. Choose the green **Sync only** action below it to save without opening Quick Apply.
 4. If RoleTrack finds a duplicate, choose **Cancel** to stop or **Add anyway** to save the duplicate and then continue to Quick Apply.
-5. The helper pauses for new questions and requests confirmation for prefilled dropdown answers. Its dry-run setting is on by default, so it will stop at Review without submitting. You can also start it from the page overlay or with **Alt+A**. The helper can be set to auto-start after you stay on a Quick Apply listing for three seconds.
+5. The helper pauses for new questions and requests confirmation for prefilled dropdown answers. **Settings → Dry run** is on by default, so it stops at Review without submitting. Turn it off to allow submission after the locally saved 0-, 3-, 5-, or 10-second countdown; the controller badge shows the live countdown. **Auto start** is off by default; when enabled, it opens Quick Apply after you stay on a Quick Apply job for three seconds. Start manually with **Sync + Quick Apply** or **Alt+A**; the controller shows status and a Stop button, then offers **Close tab** after Submit is clicked.
 
 Experience highlights appear inline on supported listings. The panel shows the detected experience range and mention count; **Show highlight on page** scrolls to the first match.
 

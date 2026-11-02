@@ -36,6 +36,7 @@
         "https://*.jobstreet.com.ph/*"
       ],
       "js": ["content/jobstreet-qa-helper.js"],
+      "css": ["content.css"],
       "run_at": "document_idle"
     }
   ]

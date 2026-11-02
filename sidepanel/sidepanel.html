@@ -82,7 +82,10 @@
     </section>
 
     <footer id="sync-area" class="foot">
-      <button type="button" id="sync" class="primary" data-state="idle">Sync + Quick Apply</button>
+      <div class="sync-actions">
+        <button type="button" id="sync" class="primary" data-state="idle">Sync + Quick Apply</button>
+        <button type="button" id="sync-only" class="sync-only" data-state="idle">Sync only</button>
+      </div>
       <p class="legend">
         <span class="dot found"></span> read from the page
         <span class="dot"></span> entered by you
@@ -113,6 +116,35 @@
       In Apps Script: <em>Deploy → Manage deployments</em> for the URL. The API key is the
       <code>API_KEY</code> script property you set. Both are stored only in this browser.
     </p>
+
+    <section class="quick-apply-settings" aria-labelledby="quick-apply-settings-title">
+      <h2 id="quick-apply-settings-title" class="section-title">Quick Apply</h2>
+      <div class="countdown-setting">
+        <label for="s-submitCountdown"><strong>Submit countdown</strong></label>
+        <select id="s-submitCountdown">
+          <option value="0">No countdown</option>
+          <option value="3">3 seconds</option>
+          <option value="5" selected>5 seconds</option>
+          <option value="10">10 seconds</option>
+        </select>
+        <p class="preference-help">If Dry run is off, the helper waits this long at Review before submitting. No countdown submits immediately. Changes save automatically.</p>
+      </div>
+      <label class="preference-row" for="s-dryRun">
+        <input id="s-dryRun" type="checkbox" checked>
+        <span>
+          <strong>Dry run</strong>
+          <span class="preference-help">When on, the helper can continue through answered steps but stops at Review and never clicks Submit. Turn it off to allow submission after the countdown above.</span>
+        </span>
+      </label>
+      <label class="preference-row" for="s-autoStart">
+        <input id="s-autoStart" type="checkbox">
+        <span>
+          <strong>Auto start</strong>
+          <span class="preference-help">When on, opening a Quick Apply job starts the application after you stay on it for 3 seconds. Off by default.</span>
+        </span>
+      </label>
+      <p id="quick-apply-settings-status" class="preference-status" role="status">Changes save automatically.</p>
+    </section>
 
     <footer class="foot foot-row">
       <button type="button" id="test-connection" class="secondary">Test connection</button>

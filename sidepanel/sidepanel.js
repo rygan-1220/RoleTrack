@@ -66,6 +66,9 @@ function setSyncButton(name) {
   button.dataset.state = name;
   button.textContent = SYNC_LABELS[name];
   button.disabled = name !== 'idle'; // blocks accidental double submits
+  const syncOnlyButton = $('sync-only');
+  syncOnlyButton.dataset.state = name;
+  syncOnlyButton.disabled = name !== 'idle';
 }
 
 function markInvalid(key, invalid) {
@@ -325,12 +328,33 @@ async function onSync({ force = false, startApply = false } = {}) {
 
 // ------------------------------------------------------------------ settings
 
-function openSettings(message) {
+async function openSettings(message) {
   $('s-apiUrl').value = state.config.apiUrl;
   $('s-apiKey').value = state.config.apiKey;
+  const preferences = await chrome.storage.local.get(['dryRun', 'submitCountdownSeconds', 'autoStart']);
+  $('s-dryRun').checked = preferences.dryRun !== false;
+  const countdown = [0, 3, 5, 10].includes(Number(preferences.submitCountdownSeconds))
+    ? Number(preferences.submitCountdownSeconds)
+    : 5;
+  $('s-submitCountdown').value = String(countdown);
+  $('s-autoStart').checked = preferences.autoStart === true;
   setBanner('info', message, $('settings-msg'));
   showView('settings');
   $('s-apiUrl').focus();
+}
+
+async function saveQuickApplyPreferences() {
+  const status = $('quick-apply-settings-status');
+  try {
+    await chrome.storage.local.set({
+      dryRun: $('s-dryRun').checked,
+      submitCountdownSeconds: Number($('s-submitCountdown').value),
+      autoStart: $('s-autoStart').checked,
+    });
+    status.textContent = 'Changes saved.';
+  } catch {
+    status.textContent = 'Could not save these settings. Try reloading RoleTrack.';
+  }
 }
 
 function readSettingsForm() {
@@ -392,6 +416,7 @@ async function init() {
     field(key).addEventListener(eventName, () => onFieldInput(key));
   }
   $('sync').addEventListener('click', () => onSync({ startApply: true }));
+  $('sync-only').addEventListener('click', () => onSync());
   $('dupe-add').addEventListener('click', () => onSync({ force: true, startApply: state.pendingApplyAfterDuplicate }));
   $('dupe-cancel').addEventListener('click', () => {
     state.pendingApplyAfterDuplicate = false;
@@ -401,6 +426,9 @@ async function init() {
   $('rescan').addEventListener('click', scan);
   $('open-settings').addEventListener('click', () => openSettings(''));
   $('close-settings').addEventListener('click', () => showView('main'));
+  $('s-dryRun').addEventListener('change', saveQuickApplyPreferences);
+  $('s-submitCountdown').addEventListener('change', saveQuickApplyPreferences);
+  $('s-autoStart').addEventListener('change', saveQuickApplyPreferences);
   $('save-settings').addEventListener('click', onSaveSettings);
   $('test-connection').addEventListener('click', onTestConnection);
   $('show-experience').addEventListener('click', async () => {
