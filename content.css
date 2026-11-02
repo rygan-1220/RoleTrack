@@ -121,3 +121,12 @@ mark.exp-hl-flash { outline: 2px solid #f59e0b; }
   [data-roletrack-experience-label] { font-size: 10px; }
   [data-roletrack-experience-detail] { font-size: 11px; }
 }
+[data-roletrack-experience-banner][data-roletrack-entry-level="true"] {
+  background: #18181b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+[data-roletrack-experience-banner][data-roletrack-entry-level="true"] [data-roletrack-experience-label],
+[data-roletrack-experience-banner][data-roletrack-entry-level="true"] [data-roletrack-experience-value],
+[data-roletrack-experience-banner][data-roletrack-entry-level="true"] [data-roletrack-experience-detail] {
+  color: #3fae7a;
+}

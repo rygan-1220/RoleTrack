@@ -6,6 +6,7 @@
   const NUMBER = '(?:\\d+(?:\\.\\d+)?|' + Object.keys(WORD_NUMBERS).join('|') + ')';
   const YEAR_PATTERN = new RegExp('(?<![\\w.])(' + NUMBER + ')\\s*(\\+)?(?:\\s*(?:-|–|—|to)\\s*(' + NUMBER + '))?\\s*(\\+)?\\s*(years?|yrs?|months?|mos?)\\b', 'gi');
   const TECH = /\b(python|java(?:script)?|typescript|sql|react|angular|vue|node\.?js|c\+\+|c#|\.net|aws|azure|gcp|kubernetes|docker|sap|salesforce|golang|rust)\b/i;
+  const ENTRY_LEVEL = /\b(?:no (?:prior |previous |relevant |work )?experience|without (?:prior |previous |work )?experience|fresh\s*grads?(?:uate)?s?|recent graduates?|entry[ -]level|graduate\s+(?:role|position|opportunit|job)|early[ -]career)\b/i;
   let lastText = null;
   let lastContainer = null;
   let lastUrl = null;
@@ -128,8 +129,19 @@
       document.documentElement.appendChild(banner);
     }
     if (!result.range) {
-      banner.textContent = 'No experience requirement detected';
+      banner.replaceChildren();
+      const label = document.createElement('span');
+      label.textContent = 'REQUIRED EXPERIENCE';
+      label.dataset.roletrackExperienceLabel = '';
+      const value = document.createElement('strong');
+      value.textContent = 'No experience';
+      value.dataset.roletrackExperienceValue = '';
+      const detail = document.createElement('span');
+      detail.textContent = 'detected';
+      detail.dataset.roletrackExperienceDetail = '';
+      banner.append(label, value, detail);
       banner.disabled = true;
+      banner.dataset.roletrackEntryLevel = String(ENTRY_LEVEL.test(lastText || ''));
       return;
     }
     const { min, max, plus } = result.range;
@@ -146,6 +158,7 @@
     detail.textContent = count;
     detail.dataset.roletrackExperienceDetail = '';
     banner.append(label, value, detail);
+    banner.dataset.roletrackEntryLevel = String(ENTRY_LEVEL.test(lastText || ''));
     banner.disabled = false;
   }
 
