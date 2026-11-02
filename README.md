@@ -1,53 +1,86 @@
 # RoleTrack
 
-A single Chrome extension combining the job application tracker and experience highlighter. Clicking the toolbar icon opens a persistent native side panel alongside the page.
+**Track job applications and review experience requirements without leaving the job listing.** RoleTrack is a Chrome extension that combines a job tracker with an inline experience highlighter in one side panel.
 
-## Install
+## ✨ Features
 
-1. Open `chrome://extensions` and enable **Developer mode**.
-2. If Experience Highlighter is already loaded from this folder, click **Reload**. Otherwise click **Load unpacked** and select `C:\Users\rygan\Downloads\job-exp-highlighter`.
-3. Disable the old standalone Job Application Tracker to avoid using its popup by mistake.
-4. Refresh any job tabs already open, pin the merged extension, and click its icon.
-5. For a right panel, select **Chrome Settings > Appearance > Side panel > Right** if necessary. Chrome owns this preference; extensions cannot force the panel's position. See [Chrome's side panel guide](https://support.google.com/chrome/answer/13156494).
+- Extracts job details from LinkedIn and JobStreet listings.
+- Highlights experience requirements and summarizes detected years and mentions.
+- Saves reviewed applications to a Google Sheet through your own Google Apps Script backend.
+- Checks for likely duplicates before adding an application.
+- Keeps a separate temporary draft for each tab and job while the side panel is open.
+- Supports manual entry on other sites and pages the extension cannot access.
 
-Requires Chrome 116+ or a Chromium browser supporting the Side Panel API. No build step is needed. The original `job-tracker-extension` folder is unchanged.
+## 📦 Install
 
-## Connect your Google Sheet
+RoleTrack currently loads as an unpacked extension; there is no build step.
 
-Use your existing Apps Script deployment and API key. Open **Settings** in the panel, paste the Web App URL (ending `/exec`) and key, test the connection, then save. The tracker settings belong to the old extension's storage, so enter them again in this merged extension. Existing sheet rows and duplicate detection continue to work with the same backend.
+1. Use Chrome 116 or later, or another Chromium browser that supports the Side Panel API.
+2. Open `chrome://extensions` and turn on **Developer mode**.
+3. Choose **Load unpacked** and select this repository's folder (the folder containing `manifest.json`).
+4. Refresh any job listing tabs that were already open, then click the RoleTrack toolbar icon.
 
-For a new spreadsheet, follow [gas/README.md](gas/README.md). The backend and sheet schema are unchanged.
+To position the panel on the right, use **Chrome Settings → Appearance → Side panel → Right**. The browser controls the panel position. See [Chrome's side panel help](https://support.google.com/chrome/answer/13156494).
 
-## Use
+If you previously used the standalone tracker or highlighter, disable those extensions to avoid overlapping controls. Settings from the old tracker are not imported; enter your Apps Script URL and API key again in RoleTrack.
 
-- Open a LinkedIn or JobStreet listing. Experience mentions are highlighted inline automatically. The range and mention count appear in the panel, replacing the highlighter's floating banner. **Show highlight on page** scrolls to the first match.
-- The panel reads company, role, salary, location, employment type, platform and URL. Review or edit the fields, choose a status and date, add notes, then click **Sync to Google Sheets**.
-- Duplicate entries show **Cancel** and **Add anyway**, as before. Only clicking Sync or Add anyway writes to the sheet.
-- The panel follows tab switches and job URL changes. Each tab/job has its own draft while the panel remains open. Re-scan preserves fields you edited on that job. Closing the panel clears these temporary drafts.
-- Experience summaries track dynamically replaced descriptions. If a site switches jobs without changing its URL, click **Re-scan** to refresh the tracker fields. For a different job at the same URL, clear any manually edited fields as needed.
-- Other job sites use the original generic extractor. After switching to an unfamiliar site, click the extension icon again to grant access, then Re-scan. Browser-internal pages support manual entry only.
+## 🔗 Connect Google Sheets
 
-## Permissions and limits
+RoleTrack sends data to a Google Apps Script web app that you deploy and control.
 
-`sidePanel` opens the native panel; `tabs` identifies the active tab and URL as you browse; `activeTab` and `scripting` enable extraction; `storage` keeps your settings locally. Automatic page access is restricted to LinkedIn jobs and JobStreet, plus the Google Apps Script hosts used for syncing.
+1. Follow the setup steps in [`gas/README.md`](gas/README.md) to prepare the spreadsheet and deploy the script.
+2. In RoleTrack, open **Settings**.
+3. Paste the deployed Web App URL (ending in `/exec`) and the script's API key.
+4. Choose **Test connection**, then **Save**.
 
-Experience matching requires a numeric year mention near an experience keyword in the same text block. Inline formatting is supported, but unusual wording, written-out numbers, and site layout changes can cause misses. A range summarizes all matches, which may represent different skills. Experience is displayed in the panel and is not added to the Google Sheet schema.
+The extension stores these settings locally in the browser. Existing rows and duplicate detection continue to use the same backend and sheet schema.
 
-## Development
+## 🧭 Use RoleTrack
 
-- `manifest.json`, `background.js`: native side panel registration and toolbar behavior.
-- `sidepanel/`: responsive tracker form, settings and experience summary.
-- `content.js`, `content.css`: automatic experience scanning and inline highlights.
-- `content/`, `utils/`, `services/`: original job extractors, utilities and Sheets API client.
-- `gas/`: Apps Script backend and setup instructions.
-- `test/`: extraction, backend, panel, highlighter and utility tests.
+1. Open a LinkedIn or JobStreet job listing and click the RoleTrack icon.
+2. Review the extracted company, role, salary, location, employment type, URL, and job description. Fill in anything missing.
+3. Choose an application status and date, add notes if useful, then select **Sync to Google Sheets**.
+4. If RoleTrack finds a possible duplicate, choose **Cancel** or **Add anyway**.
 
-Run `npm install` and `npm test`. Tests use jsdom and mocked Chrome/Sheets APIs. Live Chrome loading, current site markup, and your own Sheets connection still need a browser check.
+Experience highlights appear inline on supported listings. The panel shows the detected experience range and mention count; **Show highlight on page** scrolls to the first match.
 
-## Browser check
+Use **Re-scan** if a listing loads late or the site changes jobs without changing its URL. Re-scan preserves fields you edited. Temporary drafts are kept per tab and job while the panel is open, then cleared when the panel closes.
 
-1. Load/reload the extension. Click its icon on a job page: a resizable side panel opens and stays open when clicking the page.
-2. Verify inline highlights and the experience summary; use Show highlight on page.
-3. Edit a field and notes, switch tabs, then return: the edits remain.
-4. Select another job, confirm the fields update, and Re-scan after delayed page loading if needed.
-5. Test your connection, sync a reviewed job, then sync it again to check the duplicate warning.
+### 🌐 Other websites
+
+The generic extractor may work on other websites when Chrome has granted the extension access to that tab. If details are not detected, enter them manually. Browser-internal pages (such as `chrome://` pages) cannot be read by extensions.
+
+## 🔐 Permissions and data
+
+RoleTrack uses Chrome's `sidePanel`, `tabs`, `activeTab`, `scripting`, and `storage` permissions to open the panel, identify the active page, read supported listings, and save local settings. Persistent page access is limited to LinkedIn job pages and JobStreet. Google Apps Script hosts are permitted for syncing. The extension does not submit applications; it writes to the spreadsheet only when you choose **Sync to Google Sheets** or **Add anyway**.
+
+## 🛠️ Troubleshooting
+
+| Issue | What to try |
+| --- | --- |
+| A listing is not extracted | Refresh the tab, open a LinkedIn or JobStreet job listing, then select **Re-scan**. You can also enter details manually. |
+| Chrome says the extension cannot access a page | Some pages do not allow extension access. Use manual entry, or click the extension icon on the desired tab and try **Re-scan**. |
+| Sync fails | Check the Web App URL and API key in **Settings**, confirm the Apps Script deployment is available, then use **Test connection**. |
+| Highlights are missing or incomplete | Re-scan after the job description loads. Detection depends on numeric year mentions near experience-related wording and can vary with page layout. |
+
+## 👩‍💻 Development
+
+The extension has no build step. To run the automated tests:
+
+```sh
+npm install
+npm test
+```
+
+The tests use jsdom and mocked Chrome and Sheets APIs. They do not replace checking the extension in a live browser, against current job-site markup, and with your own Sheets deployment.
+
+### 📁 Project layout
+
+| Path | Purpose |
+| --- | --- |
+| `manifest.json`, `background.js` | Extension configuration and side panel behavior |
+| `sidepanel/` | Tracker form, settings, and experience summary |
+| `content/`, `content.js`, `content.css` | Page extraction and inline experience highlights |
+| `utils/`, `services/` | Shared utilities and Sheets API client |
+| `gas/` | Google Apps Script backend and setup guide |
+| `test/` | Automated tests |
