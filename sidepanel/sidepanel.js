@@ -331,13 +331,14 @@ async function onSync({ force = false, startApply = false } = {}) {
 async function openSettings(message) {
   $('s-apiUrl').value = state.config.apiUrl;
   $('s-apiKey').value = state.config.apiKey;
-  const preferences = await chrome.storage.local.get(['dryRun', 'submitCountdownSeconds', 'autoStart']);
+  const preferences = await chrome.storage.local.get(['dryRun', 'submitCountdownSeconds', 'autoStart', 'manualCoverLetter']);
   $('s-dryRun').checked = preferences.dryRun !== false;
   const countdown = [0, 3, 5, 10].includes(Number(preferences.submitCountdownSeconds))
     ? Number(preferences.submitCountdownSeconds)
     : 5;
   $('s-submitCountdown').value = String(countdown);
   $('s-autoStart').checked = preferences.autoStart === true;
+  $('s-manualCoverLetter').checked = preferences.manualCoverLetter === true;
   setBanner('info', message, $('settings-msg'));
   showView('settings');
   $('s-apiUrl').focus();
@@ -350,6 +351,7 @@ async function saveQuickApplyPreferences() {
       dryRun: $('s-dryRun').checked,
       submitCountdownSeconds: Number($('s-submitCountdown').value),
       autoStart: $('s-autoStart').checked,
+      manualCoverLetter: $('s-manualCoverLetter').checked,
     });
     status.textContent = 'Changes saved.';
   } catch {
@@ -429,6 +431,7 @@ async function init() {
   $('s-dryRun').addEventListener('change', saveQuickApplyPreferences);
   $('s-submitCountdown').addEventListener('change', saveQuickApplyPreferences);
   $('s-autoStart').addEventListener('change', saveQuickApplyPreferences);
+  $('s-manualCoverLetter').addEventListener('change', saveQuickApplyPreferences);
   $('save-settings').addEventListener('click', onSaveSettings);
   $('test-connection').addEventListener('click', onTestConnection);
   $('show-experience').addEventListener('click', async () => {

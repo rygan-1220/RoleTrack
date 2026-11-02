@@ -70,6 +70,8 @@
   // cover-letter step state
   let coverBaseline = null; // filenames visible when we first saw the Upload button
   let coverSkipped = false;
+  let manualCoverStepSig = null;
+  let manualCoverContinueConfirmed = false;
   let uploadTried = false;
   let gestureHandler = null;
 
@@ -418,6 +420,8 @@
   function resetCover() {
     coverBaseline = null;
     coverSkipped = false;
+    manualCoverStepSig = null;
+    manualCoverContinueConfirmed = false;
     uploadTried = false;
     disarmGesture();
   }
@@ -480,7 +484,21 @@
     // 2) cover letter: open the file dialog, wait until something is attached
     const up = document.querySelector(SEL.coverUploadBtn);
     if (up && !coverBaseline) coverBaseline = fileNames();
-    if (up && !coverAttached() && !coverSkipped) {
+    const { manualCoverLetter } = await store.get('manualCoverLetter');
+    if (up && manualCoverLetter === true && !manualCoverContinueConfirmed && !coverSkipped) {
+      disarmGesture();
+      const sig = pageSig(await readQuestions());
+      if (manualCoverStepSig && manualCoverStepSig !== sig) {
+        manualCoverStepSig = null;
+        resetCover();
+        return true;
+      }
+      manualCoverStepSig = sig;
+      highlight(up.closest('fieldset') || up.closest('[data-testid^="coverLetter"]') || up);
+      setStatus('Add or type your cover letter, then continue or skip this step.', true, 'Continue / skip');
+      return false;
+    }
+    if (up && !coverAttached() && !coverSkipped && manualCoverLetter !== true) {
       highlight(up);
       armGesture();
       if (!uploadTried) {
@@ -590,6 +608,12 @@
 
   async function onConfirm() {
     if (stopped) return;
+    const { manualCoverLetter } = await store.get('manualCoverLetter');
+    if (manualCoverLetter === true && document.querySelector(SEL.coverUploadBtn)) {
+      manualCoverContinueConfirmed = true;
+      tick();
+      return;
+    }
     const up = document.querySelector(SEL.coverUploadBtn);
     if (up && !coverAttached()) {
       coverSkipped = true; // "skip cover letter"
