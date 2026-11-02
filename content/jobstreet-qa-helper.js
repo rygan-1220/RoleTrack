@@ -58,6 +58,7 @@
 
   let busy = false;
   let stopped = false;
+  let resumeRequested = false;
   let stepsDone = 0;
   let flowStarted = false;
   let box, msgEl, dryStatusEl, confirmBtn, stopBtn, hl;
@@ -120,10 +121,10 @@
     confirmBtn.textContent = confirmLabel;
     confirmBtn.hidden = !showConfirm;
     stopBtn.hidden = !isApplyPage();
-    stopBtn.disabled = stopped;
-    stopBtn.textContent = stopped ? 'Stopped' : 'Stop application';
-    stopBtn.dataset.action = 'stop';
-    stopBtn.onclick = () => stop('Stopped.');
+    stopBtn.disabled = false;
+    stopBtn.textContent = stopped ? 'Resume application' : 'Stop application';
+    stopBtn.dataset.action = stopped ? 'resume' : 'stop';
+    stopBtn.onclick = () => stopped ? resume() : stop('Stopped.');
     refreshDryStatus();
   }
 
@@ -175,9 +176,21 @@
 
   function stop(msg) {
     stopped = true;
+    resumeRequested = false;
     highlight(null);
     clearTimeout(autoTimer);
     setStatus(msg, false);
+  }
+
+  function resume() {
+    if (!stopped) return;
+    stopped = false;
+    resumeRequested = true;
+    setStatus('Resuming application…');
+    if (!busy) {
+      resumeRequested = false;
+      tick();
+    }
   }
 
   const isDry = async () => (await store.get('dryRun')).dryRun !== false;
@@ -602,6 +615,11 @@
       stop('Helper error. Check the page or reload the extension.');
     } finally {
       busy = false;
+    }
+    if (resumeRequested && !stopped) {
+      resumeRequested = false;
+      tick();
+      return;
     }
     if (advanced) tick();
   }

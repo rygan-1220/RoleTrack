@@ -61,7 +61,12 @@ mark.exp-hl-flash { outline: 2px solid #f59e0b; }
   background: #3fae7a !important;
   color: #0b1a13 !important;
 }
+[data-qa="overlay"] [data-qa="stop"][data-action="resume"] {
+  background: #3fae7a !important;
+  color: #0b1a13 !important;
+}
 [data-qa="overlay"] [data-qa="stop"][data-action="close"]:hover:not(:disabled) { background: #34a06e !important; }
+[data-qa="overlay"] [data-qa="stop"][data-action="resume"]:hover:not(:disabled) { background: #34a06e !important; }
 [data-qa="overlay"] [data-qa="confirm"] {
   background: #3fae7a !important;
   color: #0b1a13 !important;
