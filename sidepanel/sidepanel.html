@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RoleTrack</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+
+  <!-- ============ Main view ============ -->
+  <main id="view-main">
+    <input id="f-platform" type="hidden">
+    <input id="f-url" type="hidden">
+    <header class="bar">
+      <h1>RoleTrack</h1>
+      <div class="bar-actions">
+        <button type="button" id="rescan" class="link">Re-scan</button>
+        <button type="button" id="open-settings" class="link">Settings</button>
+      </div>
+    </header>
+
+    <p id="banner" class="banner" hidden></p>
+
+    <section class="experience" aria-labelledby="experience-title">
+      <h2 id="experience-title">Experience requirements</h2>
+      <p id="experience-summary" role="status">Open a LinkedIn or JobStreet job to see experience requirements.</p>
+      <button type="button" id="show-experience" class="link" hidden>Show highlight on page</button>
+    </section>
+
+    <h2 class="section-title">Job details</h2>
+    <div class="ledger" role="group" aria-label="Job details">
+      <div class="row" data-row="company">
+        <label for="f-company"><span class="dot" data-for="company" title="Not found on the page"></span>Company</label>
+        <input id="f-company" type="text" maxlength="200">
+      </div>
+      <div class="row" data-row="role">
+        <label for="f-role"><span class="dot" data-for="role" title="Not found on the page"></span>Role</label>
+        <input id="f-role" type="text" maxlength="200">
+      </div>
+      <div class="row">
+        <label for="f-salary"><span class="dot" data-for="salary" title="Not found on the page"></span>Salary</label>
+        <input id="f-salary" type="text" maxlength="120">
+      </div>
+      <div class="row">
+        <label for="f-location"><span class="dot" data-for="location" title="Not found on the page"></span>Location</label>
+        <input id="f-location" type="text" maxlength="160">
+      </div>
+      <div class="row">
+        <label for="f-employmentType"><span class="dot" data-for="employmentType" title="Not found on the page"></span>Employment type</label>
+        <input id="f-employmentType" type="text" maxlength="60">
+      </div>
+      <details class="jd-section">
+        <summary><span class="dot" data-for="jd" title="Not found on the page"></span><span>Job description</span></summary>
+        <textarea id="f-jd" rows="8" maxlength="30000" aria-label="Job description"></textarea>
+      </details>
+    </div>
+
+    <h2 class="section-title">Application tracking</h2>
+    <div class="ledger" role="group" aria-label="Application tracking">
+      <div class="row">
+        <label for="f-status"><span class="dot" data-for="status"></span>Status</label>
+        <div class="cell"><span id="status-dot" class="status-dot" aria-hidden="true"></span><select id="f-status"></select></div>
+      </div>
+      <div class="row"><label for="f-date"><span class="dot" data-for="date"></span>Date</label><input id="f-date" type="date"></div>
+      <div class="row row-notes"><label for="f-notes"><span class="dot" data-for="notes"></span>Notes</label><textarea id="f-notes" rows="2" maxlength="2000"></textarea></div>
+    </div>
+
+    <!-- Shown instead of the Sync button when the backend reports a duplicate -->
+    <section id="duplicate" class="dupe" hidden aria-live="polite">
+      <h2 id="dupe-title">Possible duplicate application found.</h2>
+      <p class="dupe-what"><strong id="dupe-company"></strong><br><span id="dupe-role"></span></p>
+      <dl class="dupe-meta">
+        <dt>Status</dt><dd id="dupe-status"></dd>
+        <dt>Date</dt><dd id="dupe-date"></dd>
+        <dt>Row</dt><dd id="dupe-row"></dd>
+      </dl>
+      <div class="dupe-actions">
+        <button type="button" id="dupe-cancel" class="secondary">Cancel</button>
+        <button type="button" id="dupe-add" class="primary">Add anyway</button>
+      </div>
+    </section>
+
+    <footer id="sync-area" class="foot">
+      <button type="button" id="sync" class="primary" data-state="idle">Sync to Google Sheets</button>
+      <p class="legend">
+        <span class="dot found"></span> read from the page
+        <span class="dot"></span> entered by you
+      </p>
+    </footer>
+  </main>
+
+  <!-- ============ Settings view ============ -->
+  <section id="view-settings" hidden>
+    <header class="bar">
+      <h1>Settings</h1>
+      <div class="bar-actions"><button type="button" id="close-settings" class="link">Back</button></div>
+    </header>
+
+    <p id="settings-msg" class="banner" hidden></p>
+
+    <div class="ledger stacked">
+      <div class="row">
+        <label for="s-apiUrl">Web App URL</label>
+        <input id="s-apiUrl" type="url" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">
+      </div>
+      <div class="row">
+        <label for="s-apiKey">API key</label>
+        <input id="s-apiKey" type="password" spellcheck="false" autocomplete="off">
+      </div>
+    </div>
+    <p class="help">
+      In Apps Script: <em>Deploy → Manage deployments</em> for the URL. The API key is the
+      <code>API_KEY</code> script property you set. Both are stored only in this browser.
+    </p>
+
+    <footer class="foot foot-row">
+      <button type="button" id="test-connection" class="secondary">Test connection</button>
+      <button type="button" id="save-settings" class="primary">Save</button>
+    </footer>
+  </section>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

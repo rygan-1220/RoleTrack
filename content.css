@@ -1,0 +1,8 @@
+mark.exp-hl {
+  color: inherit;
+  padding: 0 2px;
+}
+mark.exp-hl-required { background: #fecaca; }
+mark.exp-hl-preferred { background: #bfdbfe; }
+mark.exp-hl-unspecified { background: #fde68a; }
+mark.exp-hl-flash { outline: 2px solid #f59e0b; }
