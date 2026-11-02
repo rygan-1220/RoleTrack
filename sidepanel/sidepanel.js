@@ -156,7 +156,13 @@ async function scan() {
       });
       result = injection && injection.result;
     } catch (err) {
-      console.warn('[job-tracker] could not read the page', err); // technical detail stays in the console
+      // Chrome rejects injection on tabs without a current activeTab grant (for
+      // example, when the panel follows a tab switch). This is an expected
+      // limitation, so keep it out of the console; manual entry still works.
+      const message = String(err?.message || err || '');
+      if (!/Cannot access contents|must request permission|cannot access.*url/i.test(message)) {
+        console.warn('[job-tracker] page extraction failed', err);
+      }
     }
   }
 
@@ -209,7 +215,7 @@ function applyExtraction(result) {
 
   if (!result || !result.ok) {
     const readable = /^https?:/i.test(pageUrl);
-    setBanner('warn', readable ? 'Unable to read this page. Enter the details manually.' : "This page can't be read by extensions. Enter the details manually.");
+    setBanner(readable ? 'info' : 'warn', readable ? 'Enter job details manually, or open a supported job listing.' : "This page can't be read by extensions. Enter the details manually.");
   } else if (hasCompany && hasRole) {
     setBanner('info', 'Job information extracted. Please review before syncing.');
   } else if (hasRole) {
