@@ -211,11 +211,18 @@
   }
 
   async function start() {
-    if (isApplyPage()) return;
+    if (isApplyPage()) return { ok: false, message: 'You are already on the application page.' };
     ensureOverlay();
     const r = findQuickApply();
-    if (!r.ok) return setStatus(r.reason);
-    if (!(await withinDailyLimit())) return setStatus(`已达今日上限（${DAILY_LIMIT}）`);
+    if (!r.ok) {
+      setStatus(r.reason);
+      return { ok: false, message: r.reason };
+    }
+    if (!(await withinDailyLimit())) {
+      const message = `已达今日上限（${DAILY_LIMIT}）`;
+      setStatus(message);
+      return { ok: false, message };
+    }
 
     await store.set({ armed: { jobId: r.id, ts: Date.now() } });
     await bumpDaily();
@@ -223,7 +230,14 @@
     setStatus('即将打开申请页…');
     await sleep(rand(300, 900)); // keep short so the key press' user activation is still valid
     r.a.click();
+    return { ok: true };
   }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== 'roletrack-start-quick-apply') return;
+    start().then(sendResponse).catch((err) => sendResponse({ ok: false, message: String(err?.message || err) }));
+    return true;
+  });
 
   window.addEventListener(
     'keydown',

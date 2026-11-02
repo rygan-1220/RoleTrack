@@ -1,5 +1,5 @@
-// Side panel controller: Detect -> Extract -> Review -> Sync.
-// The extension never submits anything on its own; the Sync button is the only thing that writes.
+// Side panel controller: Detect -> Extract -> Review -> Sync -> optional Quick Apply.
+// Quick Apply opens only after a successful sync or explicit duplicate override.
 
 import { detectPlatform, scriptsFor } from '../utils/platform.js';
 import { todayISO, formatDisplay } from '../utils/date.js';
@@ -30,6 +30,7 @@ const state = {
   pageKey: null,
   drafts: new Map(),
   pendingRefresh: false,
+  pendingApplyAfterDuplicate: false,
   domRefreshTimer: null,
 };
 
@@ -54,7 +55,7 @@ function setStatusDot() {
 }
 
 const SYNC_LABELS = {
-  idle: 'Sync to Google Sheets',
+  idle: 'Sync + Quick Apply',
   syncing: 'Syncing…',
   success: '✓ Synced successfully',
   failed: '✕ Sync failed',
@@ -258,7 +259,21 @@ function validate(job) {
 
 // ------------------------------------------------------------------ sync
 
-async function onSync({ force = false } = {}) {
+async function startQuickApply() {
+  if (!state.tab?.id || state.platform?.key !== 'jobstreet') {
+    setBanner('warn', 'Saved to Google Sheets. Open a JobStreet Quick Apply listing to start the application.');
+    return;
+  }
+  try {
+    const result = await chrome.tabs.sendMessage(state.tab.id, { type: 'roletrack-start-quick-apply' });
+    if (result?.ok) setBanner('success', 'Saved to Sheets. Opening JobStreet Quick Apply…');
+    else setBanner('warn', `Saved to Sheets. ${result?.message || 'Quick Apply could not be started.'}`);
+  } catch {
+    setBanner('warn', 'Saved to Sheets, but the JobStreet helper is unavailable. Reload RoleTrack and refresh the job tab.');
+  }
+}
+
+async function onSync({ force = false, startApply = false } = {}) {
   if (state.syncing || state.scanning) return;
 
   for (const key of ['company', 'role', 'url']) markInvalid(key, false);
@@ -289,11 +304,15 @@ async function onSync({ force = false } = {}) {
     hideDuplicate();
     setSyncButton('success');
     setBanner('success', result.row ? `Saved to your sheet (row ${result.row}).` : 'Saved to your sheet.');
+    state.pendingApplyAfterDuplicate = false;
+    if (startApply) await startQuickApply();
   } else if (result.duplicate) {
     setSyncButton('idle');
+    state.pendingApplyAfterDuplicate = startApply;
     setBanner('warn', result.duplicateType === 'url' ? 'This job URL is already in your sheet.' : 'Possible duplicate application found.');
     showDuplicate(result);
   } else {
+    state.pendingApplyAfterDuplicate = false;
     hideDuplicate();
     setSyncButton('failed');
     setBanner('error', result.message || 'Unable to connect to Google Sheets.');
@@ -372,9 +391,10 @@ async function init() {
     const eventName = key === 'status' || key === 'date' ? 'change' : 'input';
     field(key).addEventListener(eventName, () => onFieldInput(key));
   }
-  $('sync').addEventListener('click', () => onSync());
-  $('dupe-add').addEventListener('click', () => onSync({ force: true }));
+  $('sync').addEventListener('click', () => onSync({ startApply: true }));
+  $('dupe-add').addEventListener('click', () => onSync({ force: true, startApply: state.pendingApplyAfterDuplicate }));
   $('dupe-cancel').addEventListener('click', () => {
+    state.pendingApplyAfterDuplicate = false;
     hideDuplicate();
     setBanner('info', 'Not added. You can edit the details and sync again.');
   });
