@@ -84,8 +84,8 @@ function doPost(e) {
       return json_({
         success: false,
         duplicate: true,
-        duplicateType: duplicate.type, // "url" (exact) or "company_role" (possible)
-        message: duplicate.type === 'url' ? 'This job URL is already in your sheet.' : 'Possible duplicate application',
+        duplicateType: duplicate.type, // "url" when URL, company, and role all match
+        message: 'This job URL, company, and role are already in your sheet.',
         existingRow: duplicate.row,
         existing: duplicate.record,
       });
@@ -279,7 +279,7 @@ function normalizeUrl_(raw) {
   return query ? path + '?' + query : path;
 }
 
-/** Returns { type, row, record } or null. An exact URL match anywhere beats a company+role match. */
+/** A duplicate requires the normalized URL, company, and role all to match. */
 function findDuplicate_(sheet, cols, job) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
@@ -289,17 +289,18 @@ function findDuplicate_(sheet, cols, job) {
   const jobCompany = normalizeKey_(job.company);
   const jobRole = normalizeKey_(job.role);
 
-  let companyRoleMatch = null;
+  // Require all three fields. In particular, a shared company and role with a different URL
+  // is allowed, as is a shared URL when the company or role differs.
+  if (!jobUrl || !jobCompany || !jobRole) return null;
+
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const rowUrl = normalizeUrl_(row[cols.url]);
-    if (jobUrl && rowUrl && jobUrl === rowUrl) return { type: 'url', row: i + 2, record: toRecord_(row, cols) };
-
-    if (!companyRoleMatch && normalizeKey_(row[cols.company]) === jobCompany && normalizeKey_(row[cols.role]) === jobRole) {
-      companyRoleMatch = { type: 'company_role', row: i + 2, record: toRecord_(row, cols) };
+    if (rowUrl && rowUrl === jobUrl && normalizeKey_(row[cols.company]) === jobCompany && normalizeKey_(row[cols.role]) === jobRole) {
+      return { type: 'url', row: i + 2, record: toRecord_(row, cols) };
     }
   }
-  return companyRoleMatch;
+  return null;
 }
 
 function toRecord_(row, cols) {

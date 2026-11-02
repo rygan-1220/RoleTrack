@@ -107,8 +107,46 @@
   }
 
   function publish() {
+    updateExperienceBanner();
     // A closed panel has no listener; that is expected.
     try { chrome.runtime.sendMessage({ type: 'experience-updated', result }).catch(() => {}); } catch {}
+  }
+
+  function updateExperienceBanner() {
+    let banner = document.querySelector('[data-roletrack-experience-banner]');
+    if (!result.available) {
+      banner?.remove();
+      return;
+    }
+    if (!banner) {
+      banner = document.createElement('button');
+      banner.type = 'button';
+      banner.dataset.roletrackExperienceBanner = '';
+      banner.setAttribute('aria-live', 'polite');
+      banner.title = 'Click to jump to the highlighted experience requirement';
+      banner.addEventListener('click', jump);
+      document.documentElement.appendChild(banner);
+    }
+    if (!result.range) {
+      banner.textContent = 'No experience requirement detected';
+      banner.disabled = true;
+      return;
+    }
+    const { min, max, plus } = result.range;
+    const years = min === max ? `${min}` : `${min}–${max}`;
+    const count = `${result.count} ${result.count === 1 ? 'mention' : 'mentions'} found`;
+    banner.replaceChildren();
+    const label = document.createElement('span');
+    label.textContent = 'REQUIRED EXPERIENCE';
+    label.dataset.roletrackExperienceLabel = '';
+    const value = document.createElement('strong');
+    value.textContent = `${years}${plus ? '+' : ''} years`;
+    value.dataset.roletrackExperienceValue = '';
+    const detail = document.createElement('span');
+    detail.textContent = count;
+    detail.dataset.roletrackExperienceDetail = '';
+    banner.append(label, value, detail);
+    banner.disabled = false;
   }
 
   function scan() {

@@ -6,3 +6,51 @@ mark.exp-hl-required { background: #fecaca; }
 mark.exp-hl-preferred { background: #bfdbfe; }
 mark.exp-hl-unspecified { background: #fde68a; }
 mark.exp-hl-flash { outline: 2px solid #f59e0b; }
+
+[data-roletrack-experience-banner] {
+  all: initial;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483646;
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  padding: 16px 26px;
+  border: 1px solid #52525b;
+  border-radius: 14px;
+  background: #18181b;
+  color: #e4e4e7;
+  box-shadow: 0 8px 26px rgb(0 0 0 / 38%);
+  font: 600 16px/1.35 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+}
+[data-roletrack-experience-label] {
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+[data-roletrack-experience-value] {
+  color: #fafafa;
+  font-size: 25px;
+  font-weight: 850;
+}
+[data-roletrack-experience-detail] {
+  color: #a1a1aa;
+  font-size: 13px;
+  font-weight: 500;
+}
+[data-roletrack-experience-banner]:disabled { cursor: default; opacity: 1; }
+@media (max-width: 540px) {
+  [data-roletrack-experience-banner] { gap: 8px; padding: 12px 14px; white-space: normal; }
+  [data-roletrack-experience-value] { font-size: 21px; }
+  [data-roletrack-experience-label] { font-size: 10px; }
+  [data-roletrack-experience-detail] { font-size: 11px; }
+}

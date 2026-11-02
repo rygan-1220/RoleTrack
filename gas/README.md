@@ -66,7 +66,7 @@ Responses (always HTTP 200 with JSON; look at `success`):
 ```jsonc
 { "success": true,  "message": "Application added", "row": 152 }
 
-{ "success": false, "duplicate": true, "duplicateType": "url" | "company_role",
+{ "success": false, "duplicate": true, "duplicateType": "url",
   "message": "Possible duplicate application", "existingRow": 120,
   "existing": { "date": "2026-09-12", "company": "…", "role": "…", "platform": "…", "status": "Applied", "url": "…" } }
 
@@ -78,10 +78,7 @@ Responses (always HTTP 200 with JSON; look at `success`):
 
 ## Duplicate rules
 
-1. **Same job URL → exact duplicate.** URLs are normalised first: LinkedIn and JobStreet URLs reduce to their job id (so `…/jobs/view/123/?trackingId=…` matches `…?currentJobId=123`); other sites lose tracking parameters, `#fragment`, `www.` and trailing slashes.
-2. **Same company + role → possible duplicate.** Compared after lowercasing, trimming, and treating punctuation as spaces (`ABC Tech Sdn. Bhd.` = `abc tech sdn bhd`).
-
-An exact URL match wins over a company+role match. Nothing is ever overwritten: the client decides between *Cancel* and *Add anyway*.
+An entry is a duplicate only when **job URL, company name, and role/position all match** after normalization. The check will not flag a shared URL by itself or a shared company and role with a different URL. LinkedIn and JobStreet URLs reduce to their job id (so `…/jobs/view/123/?trackingId=…` matches `…?currentJobId=123`); other URLs lose tracking parameters, `#fragment`, `www.` and trailing slashes. Company and role are compared after lowercasing and treating punctuation as spaces (`ABC Tech Sdn. Bhd.` = `abc tech sdn bhd`). Nothing is ever overwritten: the client decides between *Cancel* and *Add anyway*.
 
 ## Security notes
 

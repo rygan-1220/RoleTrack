@@ -8,6 +8,7 @@
 - Highlights experience requirements and summarizes detected years and mentions.
 - Saves reviewed applications to a Google Sheet through your own Google Apps Script backend.
 - Checks for likely duplicates before adding an application.
+- Includes a JobStreet Quick Apply helper that guides application steps and pauses for unanswered questions.
 - Keeps a separate temporary draft for each tab and job while the side panel is open.
 - Supports manual entry on other sites and pages the extension cannot access.
 
@@ -41,6 +42,7 @@ The extension stores these settings locally in the browser. Existing rows and du
 2. Review the extracted company, role, salary, location, employment type, URL, and job description. Fill in anything missing.
 3. Choose an application status and date, add notes if useful, then select **Sync to Google Sheets**.
 4. If RoleTrack finds a possible duplicate, choose **Cancel** or **Add anyway**.
+5. On a JobStreet listing, use the helper overlay or press **Alt+A** to open its Quick Apply flow. It pauses for new questions and requests confirmation for prefilled dropdown answers. Its dry-run setting is on by default, so it will stop at Review without submitting. The helper can also be set to auto-start after you stay on a Quick Apply listing for three seconds.
 
 Experience highlights appear inline on supported listings. The panel shows the detected experience range and mention count; **Show highlight on page** scrolls to the first match.
 
@@ -52,7 +54,7 @@ The generic extractor may work on other websites when Chrome has granted the ext
 
 ## 🔐 Permissions and data
 
-RoleTrack uses Chrome's `sidePanel`, `tabs`, `activeTab`, `scripting`, and `storage` permissions to open the panel, identify the active page, read supported listings, and save local settings. Persistent page access is limited to LinkedIn job pages and JobStreet. Google Apps Script hosts are permitted for syncing. The extension does not submit applications; it writes to the spreadsheet only when you choose **Sync to Google Sheets** or **Add anyway**.
+RoleTrack uses Chrome's `sidePanel`, `tabs`, `activeTab`, `scripting`, and `storage` permissions to open the panel, identify the active page, read supported listings, and save local settings. Persistent page access is limited to LinkedIn job pages and JobStreet. Google Apps Script hosts are permitted for syncing. The tracker writes to the spreadsheet only when you choose **Sync to Google Sheets** or **Add anyway**. The separately controlled JobStreet helper can advance Quick Apply steps; its dry-run setting is on by default and prevents the final submission.
 
 ## 🛠️ Troubleshooting
 
