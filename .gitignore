@@ -1,2 +1,7 @@
 node_modules/
 .roletrack-worker/
+
+# Local extension packaging artifacts
+/local-packaging/
+/RoleTrack.zip
+/jobtracker.zip
