@@ -388,7 +388,23 @@
     const labelledBy = (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent || '').join(' ');
     const label = el.labels?.[0]?.textContent || (el.matches?.('label') ? el.textContent : '') || el.closest?.('label')?.textContent || el.closest?.('fieldset')?.querySelector('legend')?.textContent ||
       (el.querySelector && el.querySelector('legend, label, strong')?.textContent) || '';
-    return (label || labelledBy || el.getAttribute?.('aria-label') || el.id || el.name || '').trim();
+    const explicit = (label || labelledBy || el.getAttribute?.('aria-label') || '').trim();
+    if (explicit) return explicit;
+
+    // Screening prompts are often plain text immediately before a custom-styled control,
+    // without a <label>, aria-labelledby, or fieldset legend. Walk up a few structural levels
+    // and use the nearest preceding sibling's visible text; no site-specific classes required.
+    let branch = el;
+    for (let depth = 0; branch?.parentElement && depth < 5; depth += 1) {
+      const parent = branch.parentElement;
+      const siblings = [...parent.children];
+      for (let i = siblings.indexOf(branch) - 1; i >= 0; i -= 1) {
+        const text = (siblings[i].innerText || siblings[i].textContent || '').replace(/\s+/g, ' ').trim();
+        if (text && text.length <= 500) return text;
+      }
+      branch = parent;
+    }
+    return (el.id || el.name || '').trim();
   };
 
   const optionInfo = (option) => ({ id: option.id || '', value: option.value, text: option.textContent.trim(), disabled: option.disabled || option.parentElement?.disabled === true });
@@ -414,7 +430,7 @@
       qs.push({
         id,
         el: s.closest('div') || s,
-        label: labelOf(s.closest('div') || s),
+        label: labelOf(s),
         answered: hasValue && knownSet.has(id),
         needsConfirm: hasValue && !knownSet.has(id),
         type: 'select', required: s.required || s.getAttribute('aria-required') === 'true', value: hasValue ? s.value : '',
