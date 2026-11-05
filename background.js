@@ -26,7 +26,7 @@ async function content(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message);
 }
 
-async function runStartJob({ taskId, tabId, url }) {
+async function prepareJob({ taskId, tabId, url }) {
   if (tabId == null && url) {
     const requested = new URL(url);
     const matches = (await chrome.tabs.query({})).filter((tab) => {
@@ -48,13 +48,39 @@ async function runStartJob({ taskId, tabId, url }) {
     const job = createJobFromExtraction(extraction, source.url, { status: 'To Apply' });
     const validation = validateJob(job);
     if (validation) throw new Error(validation.message);
+    const jobInfo = {
+      company: job.company,
+      role: job.role,
+      location: job.location,
+      salary: job.salary,
+      employmentType: job.employmentType,
+    };
+    task = await saveTask({ phase: 'JOB_INFO_READY', jobInfo });
+    return { ok: true, task, job };
+  } catch (error) {
+    await saveTask({ phase: 'FAILED', error: String(error?.message || error) });
+    throw error;
+  }
+}
+
+async function syncAndStartJob({ taskId, job }) {
+  const prepared = await taskState();
+  if (prepared?.taskId !== taskId || prepared.phase !== 'JOB_INFO_READY' || !prepared.sourceTabId) {
+    throw new Error('Job details are not ready for Sheet sync. Start the worker task again.');
+  }
+  const source = await chrome.tabs.get(prepared.sourceTabId).catch(() => null);
+  if (!source?.url || new URL(source.url).pathname !== new URL(prepared.sourceUrl).pathname) {
+    throw new Error('The job tab changed before the Sheet sync started.');
+  }
+  const tabId = prepared.sourceTabId;
+  try {
     const config = await getConfig();
     if (!isConfigured(config)) throw new Error('Configure the test Sheet in RoleTrack before running the worker.');
-    task = await saveTask({ phase: 'SYNCING' });
+    await saveTask({ phase: 'SYNCING' });
     const result = await syncJobForTab(config, tabId, job);
     if (result.duplicate) throw new Error('This job is already in the Sheet. Worker tasks never force duplicate records.');
     if (!result.success) throw new Error(result.message || 'Google Sheets sync failed.');
-    task = await saveTask({ phase: 'STARTING_APPLY', sheetRow: result.row || null });
+    const task = await saveTask({ phase: 'STARTING_APPLY', sheetRow: result.row || null });
     await chrome.storage.local.set({ [WORKER_KEY]: task, [HEARTBEAT_KEY]: { taskId, at: Date.now() } });
     const started = await content(tabId, { type: 'roletrack-worker-helper', command: 'startJob' });
     if (!started?.ok) throw new Error(started?.message || 'Quick Apply could not be started.');
@@ -63,6 +89,11 @@ async function runStartJob({ taskId, tabId, url }) {
     await saveTask({ phase: 'FAILED', error: String(error?.message || error) });
     throw error;
   }
+}
+
+async function runStartJob(args) {
+  const prepared = await prepareJob(args);
+  return syncAndStartJob({ taskId: args.taskId, job: prepared.job });
 }
 
 chrome.tabs.onCreated.addListener((tab) => {
@@ -97,9 +128,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== 'roletrack-worker-command') return;
   (async () => {
     const { command, args = {} } = message;
+    if (command === 'prepareJob') return prepareJob(args);
+    if (command === 'syncAndStartJob') return syncAndStartJob(args);
     if (command === 'startJob') return runStartJob(args);
     if (command === 'getTask') return taskState();
-    if (command === 'getWorkerProtocol') return { version: chrome.runtime.getManifest().version, supportsResume: true };
+    if (command === 'getWorkerProtocol') return { version: chrome.runtime.getManifest().version, supportsResume: true, supportsPreparedJob: true };
     if (command === 'heartbeat') {
       const task = await taskState();
       if (!task?.taskId || task.taskId !== args.taskId) throw new Error('Worker heartbeat does not match the active task.');

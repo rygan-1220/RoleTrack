@@ -91,17 +91,48 @@ async function launch() {
   const expectedVersion = JSON.parse(await fs.readFile(path.join(ROOT, 'manifest.json'), 'utf8')).version;
   let loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
   let protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
-  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true) {
-    // Persistent profiles can retain an older unpacked extension worker after source changes.
-    await bridge.evaluate(() => chrome.runtime.reload()).catch(() => {});
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true) {
+    console.log(`[EXTENSION] Reloading RoleTrack to version ${expectedVersion}...`);
+    await bridge.goto('chrome://extensions/');
+    const reloaded = await bridge.evaluate(async () => {
+      const allElements = (root) => {
+        const found = [];
+        for (const element of root.querySelectorAll('*')) {
+          found.push(element);
+          if (element.shadowRoot) found.push(...allElements(element.shadowRoot));
+        }
+        return found;
+      };
+      for (let attempt = 0; attempt < 80; attempt += 1) {
+        const item = allElements(document).find((element) => {
+          if (element.localName !== 'extensions-item' || !element.shadowRoot) return false;
+          const name = element.shadowRoot.querySelector('#name')?.textContent?.trim();
+          return name === 'RoleTrack';
+        });
+        const reloadButton = item?.shadowRoot?.querySelector('#dev-reload-button');
+        if (reloadButton && !reloadButton.disabled) {
+          reloadButton.click();
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 125));
+      }
+      return false;
+    });
+    if (!reloaded) throw new Error('Could not find RoleTrack’s Reload button on chrome://extensions. Enable Developer mode and retry.');
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     await bridge.goto(bridgeUrl);
-    loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
-    protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
+      protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
+      if (loadedVersion === expectedVersion && protocol?.version === expectedVersion && protocol?.supportsResume === true && protocol?.supportsPreparedJob === true) break;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
-  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true) {
-    throw new Error(`RoleTrack extension did not reload to version ${expectedVersion}. Close the worker browser and reload RoleTrack from chrome://extensions, then retry.`);
+  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true) {
+    throw new Error(`RoleTrack extension did not reload to version ${expectedVersion}. Open chrome://extensions, reload RoleTrack, and retry.`);
   }
+  console.log(`[EXTENSION] RoleTrack ${loadedVersion} ready.`);
   return { context, worker, bridge };
 }
 
@@ -266,12 +297,23 @@ async function run() {
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
       if (Date.now() >= deadline) throw new Error('Job page, RoleTrack helper, and a Quick Apply action did not become ready within 60 seconds.');
-      started = await extensionCommand(bridge, 'startJob', { taskId, url });
+      const prepared = await extensionCommand(bridge, 'prepareJob', { taskId, url });
+      const info = prepared.task?.jobInfo;
+      if (info) {
+        console.log('\n[JOB_INFO]');
+        for (const [label, value] of [['Company', info.company], ['Role', info.role], ['Location', info.location], ['Salary', info.salary], ['Employment type', info.employmentType]]) {
+          if (value) console.log(`  ${label}: ${value}`);
+        }
+      }
+      safeLog(taskId, 'SYNCING', 'Writing job details to the Sheet.');
+      started = await extensionCommand(bridge, 'syncAndStartJob', { taskId, job: prepared.job });
     }
     heartbeatTimer = setInterval(() => { extensionCommand(bridge, 'heartbeat', { taskId }).catch(() => {}); }, 2000);
     heartbeatTimer.unref?.();
     if (resumeMode) safeLog(taskId, 'REATTACHED', 'Sheet sync was not repeated.');
-    else safeLog(taskId, 'SYNCED', started.task?.sheetRow ? `sheet-row=${started.task.sheetRow}` : 'sheet sync succeeded');
+    else {
+      safeLog(taskId, 'SYNCED', started.task?.sheetRow ? `sheet-row=${started.task.sheetRow}` : 'sheet sync succeeded');
+    }
     console.log('Worker task started. Use pause to take over the browser; resume returns to automation.');
 
     let lastPhase = '';
@@ -343,7 +385,7 @@ async function run() {
               const deadline = Date.now() + 60000;
               let complete = false;
               let skipped = false;
-              console.log('Upload is processing. Type skip to skip or exit to cancel while the worker checks its status.');
+              console.log('[UPLOADING] Upload is processing. Type skip to skip or exit to cancel while the worker checks its status.');
               while (!complete && Date.now() < deadline) {
                 const status = await extensionCommand(bridge, 'checkCoverUpload').catch(() => null);
                 complete = status?.complete === true;
