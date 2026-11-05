@@ -64,6 +64,11 @@
   let box, msgEl, dryStatusEl, confirmBtn, stopBtn, hl;
   let countdownRemaining = null;
   let dryStatusRevision = 0;
+  let workerMode = false;
+  let workerPaused = false;
+  let workerPending = null;
+  const workerTaskKey = 'roleTrackWorkerTask';
+  const workerHeartbeatKey = 'roleTrackWorkerHeartbeat';
 
   let watchedId = null;
   let autoTimer = null;
@@ -120,7 +125,7 @@
     msgEl.textContent = msg;
     confirmBtn.textContent = confirmLabel;
     confirmBtn.hidden = !showConfirm;
-    stopBtn.hidden = !isApplyPage();
+    stopBtn.hidden = !isApplyPage() || workerMode;
     stopBtn.disabled = false;
     stopBtn.textContent = stopped ? 'Resume application' : 'Stop application';
     stopBtn.dataset.action = stopped ? 'resume' : 'stop';
@@ -180,6 +185,7 @@
     highlight(null);
     clearTimeout(autoTimer);
     setStatus(msg, false);
+    if (workerMode) reportWorkerEvent({ phase: 'WAITING_BROWSER', pending: null }).catch(() => {});
   }
 
   function resume() {
@@ -290,6 +296,74 @@
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === 'roletrack-worker-helper') {
+      (async () => {
+        const { command, args = {} } = message;
+        if (command === 'checkJobPage') return { ready: true, quickApplyAvailable: findQuickApply().ok, url: location.href };
+        if (command === 'checkCoverUpload') return { complete: coverUploadComplete(), attached: coverAttached() };
+        if (command === 'attachTask') {
+          let { [workerTaskKey]: task = {} } = await store.get(workerTaskKey);
+          if (!task.taskId || task.taskId !== args.taskId) {
+            if (!args.task?.taskId || args.task.taskId !== args.taskId) throw new Error('Saved worker task state is missing from extension storage.');
+            task = args.task;
+            await store.set({ [workerTaskKey]: task });
+          }
+          workerMode = true;
+          workerPaused = args.paused === true;
+          workerPending = null;
+          stopped = workerPaused;
+          if (!flowStarted) runApplyFlow(true);
+          else if (!workerPaused) setTimeout(tick, 150);
+          return { ok: true };
+        }
+        if (command === 'startJob') {
+          workerMode = true;
+          workerPaused = false;
+          workerPending = null;
+          stopped = false;
+          await reportWorkerEvent({ phase: 'APPLYING', pending: null });
+          const task = await start();
+          return task;
+        }
+        if (command === 'getTask') return (await store.get(workerTaskKey))[workerTaskKey] || null;
+        if (command === 'pauseTask') {
+          workerMode = true;
+          workerPaused = true;
+          stopped = true;
+          clearTimeout(autoTimer);
+          highlight(null);
+          setStatus('Paused for browser takeover. Type resume in the worker terminal after you finish.');
+          await reportWorkerEvent({ phase: 'WAITING_BROWSER', pending: null });
+          return { ok: true };
+        }
+        if (command === 'resumeTask') {
+          workerMode = true;
+          workerPaused = false;
+          workerPending = null;
+          stopped = false;
+          const review = !!document.querySelector(SEL.submitBtn);
+          await reportWorkerEvent({ phase: review ? 'REVIEW_REACHED' : 'APPLYING', pending: null });
+          if (review) { stopped = true; setStatus('Review reached. Dry run is on, so nothing was submitted.'); }
+          else if (!flowStarted) runApplyFlow(true);
+          else setTimeout(tick, 150);
+          return { ok: true, phase: review ? 'REVIEW_REACHED' : 'APPLYING' };
+        }
+        if (command === 'answerQuestion') return applyWorkerAnswer(args);
+        throw new Error(`Unknown helper command: ${command}`);
+      })().then(sendResponse, async (error) => {
+        if (message.command === 'answerQuestion' && workerPending?.kind === 'coverLetter') {
+          sendResponse({ ok: false, waiting: true, message: String(error?.message || error) });
+          return;
+        }
+        if (message.command === 'answerQuestion' && workerPending?.requestId === message.args?.requestId) {
+          workerPending = null;
+          await reportWorkerEvent({ phase: 'APPLYING', pending: null });
+          setTimeout(tick, 25);
+        }
+        sendResponse({ ok: false, message: String(error?.message || error) });
+      });
+      return true;
+    }
     if (message?.type !== 'roletrack-start-quick-apply') return;
     start().then(sendResponse).catch((err) => sendResponse({ ok: false, message: String(err?.message || err) }));
     return true;
@@ -310,8 +384,14 @@
     await store.set({ known: [...new Set([...known, ...ids])] });
   }
 
-  const labelOf = (el) =>
-    ((el.querySelector && el.querySelector('legend, label, strong')?.textContent) || el.id || '').trim().slice(0, 50);
+  const labelOf = (el) => {
+    const labelledBy = (el.getAttribute?.('aria-labelledby') || '').split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent || '').join(' ');
+    const label = el.labels?.[0]?.textContent || (el.matches?.('label') ? el.textContent : '') || el.closest?.('label')?.textContent || el.closest?.('fieldset')?.querySelector('legend')?.textContent ||
+      (el.querySelector && el.querySelector('legend, label, strong')?.textContent) || '';
+    return (label || labelledBy || el.getAttribute?.('aria-label') || el.id || el.name || '').trim();
+  };
+
+  const optionInfo = (option) => ({ id: option.id || '', value: option.value, text: option.textContent.trim(), disabled: option.disabled || option.parentElement?.disabled === true });
 
   async function readQuestions() {
     const { known = [] } = await store.get('known');
@@ -321,24 +401,29 @@
     document.querySelectorAll(SEL.radioGroup).forEach((fs) => {
       // resume / cover-letter pickers are radio groups too, but they are not screening questions
       if (!fs.querySelector('input[name^="questionnaire."]')) return;
-      qs.push({ id: fs.id, el: fs, label: labelOf(fs), answered: !!fs.querySelector('input[type="radio"]:checked') });
+      const radios = [...fs.querySelectorAll('input[type="radio"][name^="questionnaire."]')];
+      const chosen = radios.find((r) => r.checked);
+      qs.push({ id: fs.id || radios[0]?.name, el: fs, label: labelOf(fs), type: 'radio', required: radios.some((r) => r.required) || fs.getAttribute('aria-required') === 'true', answered: !!chosen, value: chosen?.value || '', options: radios.map((r) => ({ id: r.id, value: r.value, text: (r.labels?.[0]?.textContent || r.closest('label')?.textContent || r.value).trim(), disabled: r.disabled })) });
     });
 
     // <select> has no placeholder on Jobstreet, so "has a value" does not prove it was answered.
     // First time we see a given question id we ask you to confirm it, then remember it.
     document.querySelectorAll(SEL.select).forEach((s) => {
       const hasValue = s.selectedIndex >= 0 && s.value !== '';
+      const id = s.id || s.name;
       qs.push({
-        id: s.id,
+        id,
         el: s.closest('div') || s,
         label: labelOf(s.closest('div') || s),
-        answered: hasValue && knownSet.has(s.id),
-        needsConfirm: hasValue && !knownSet.has(s.id),
+        answered: hasValue && knownSet.has(id),
+        needsConfirm: hasValue && !knownSet.has(id),
+        type: 'select', required: s.required || s.getAttribute('aria-required') === 'true', value: hasValue ? s.value : '',
+        options: [...s.options].map(optionInfo),
       });
     });
 
     document.querySelectorAll(SEL.textField).forEach((t) => {
-      qs.push({ id: t.id || t.name, el: t, label: labelOf(t.closest('div') || t), answered: t.value.trim() !== '' });
+      qs.push({ id: t.id || t.name, el: t, label: labelOf(t.closest('div') || t), type: t.tagName.toLowerCase() === 'textarea' ? 'textarea' : (t.type || 'text'), required: t.required || t.getAttribute('aria-required') === 'true', value: t.value, answered: t.value.trim() !== '', options: [] });
     });
 
     return qs;
@@ -358,7 +443,7 @@
     const tids = [...new Set([...document.querySelectorAll('[data-testid]')].map((e) => e.getAttribute('data-testid')))]
       .sort()
       .join(',');
-    return [location.pathname + location.search, heads, qs.map((q) => q.id).join('|'), tids].join('||');
+    return [location.pathname + location.search, heads, qs.map((q) => `${q.id}:${q.type}:${q.required}:${q.value}:${q.label}:${(q.options || []).map((o) => `${o.id}=${o.value}=${o.text}:${o.disabled}`).join(';')}`).join('|'), tids].join('||');
   }
   const currentSig = async () => pageSig(await readQuestions());
 
@@ -384,6 +469,98 @@
     );
   }
 
+  async function reportWorkerEvent(event) {
+    const { [workerTaskKey]: task = {} } = await store.get(workerTaskKey);
+    if (!task.taskId) return;
+    await store.set({ [workerTaskKey]: { ...task, ...event, updatedAt: Date.now() } });
+    chrome.runtime.sendMessage({ type: 'roletrack-worker-event', taskId: task.taskId, ...event }).catch(() => {});
+  }
+
+  async function workerHeartbeatFresh() {
+    const state = await store.get(workerHeartbeatKey);
+    const heartbeat = state[workerHeartbeatKey];
+    const task = (await store.get(workerTaskKey))[workerTaskKey];
+    return !!task?.taskId && heartbeat?.taskId === task.taskId && Date.now() - heartbeat.at < 10000;
+  }
+
+  async function pauseAfterWorkerDisconnect() {
+    workerPaused = true;
+    stopped = true;
+    workerPending = null;
+    highlight(null);
+    setStatus('Worker connection lost. Automation is paused; reconnect with worker:run -- --resume.');
+    await reportWorkerEvent({ phase: 'WAITING_BROWSER', pending: null });
+  }
+
+  function questionPayload(q, qs, kind = 'question') {
+    return {
+      taskId: null, requestId: crypto.randomUUID(), questionId: q.id, pageSignature: pageSig(qs), kind,
+      prompt: q.label || 'Unlabelled required field', controlType: q.type || 'unknown', required: !!q.required,
+      currentAnswer: q.value || '', options: (q.options || []).map((option) => ({ ...option })),
+    };
+  }
+
+  async function waitForWorkerInput(q, qs, kind = 'question') {
+    const pending = questionPayload(q, qs, kind);
+    const { [workerTaskKey]: task = {} } = await store.get(workerTaskKey);
+    pending.taskId = task.taskId;
+    workerPending = pending;
+    highlight(q.el);
+    setStatus(kind === 'coverLetter' ? 'Worker is waiting for a cover letter choice.' : `Waiting for terminal answer: ${pending.prompt}`);
+    await reportWorkerEvent({ phase: 'WAITING_INPUT', pending });
+  }
+
+  function findUnknownRequired(qs) {
+    const known = (el) => qs.some((q) => q.el === el || q.el?.contains?.(el));
+    return [...document.querySelectorAll('input[required], textarea[required], select[required], [aria-required="true"]')]
+      .find((el) => {
+        if (known(el) || el.closest('[data-qa="overlay"]') || el.type === 'hidden' || el.disabled) return false;
+        if (el.type === 'file') {
+          const coverInput = coverFileInput();
+          return el !== coverInput || (!coverSkipped && !coverAttached());
+        }
+        if (el.type === 'checkbox') return !el.checked;
+        if (el.type === 'radio') return !document.querySelector(`input[type="radio"][name="${CSS.escape(el.name)}"]:checked`);
+        return !String(el.value || '').trim();
+      });
+  }
+
+  async function applyWorkerAnswer(args) {
+    if (workerPaused) throw new Error('Task is paused for browser takeover.');
+    const pending = workerPending;
+    if (!pending || args.requestId !== pending.requestId || args.taskId !== pending.taskId || args.questionId !== pending.questionId || args.pageSignature !== pending.pageSignature) throw new Error('The answer does not match the current pending question.');
+    const qs = await readQuestions();
+    const q = qs.find((item) => item.id === args.questionId);
+    if (pageSig(qs) !== pending.pageSignature || (!q && pending.kind !== 'coverLetter')) throw new Error('The page or answer options changed. Please answer the updated question.');
+    if (pending.kind === 'coverLetter') {
+      if (args.choice === 'skip') { coverSkipped = true; coverBaseline = null; }
+      else if (!coverUploadComplete()) throw new Error('The selected cover letter upload has not been confirmed yet.');
+    } else if (q.type === 'radio' || q.type === 'select') {
+      const option = q.options.find((item) => (args.optionId && item.id === args.optionId) || item.value === args.value);
+      if (!option || option.disabled) throw new Error('That option is no longer available.');
+      const control = q.type === 'radio'
+        ? [...q.el.querySelectorAll('input[type="radio"]')].find((el) => el.id === option.id || el.value === option.value)
+        : [...document.querySelectorAll(SEL.select)].find((el) => (el.id || el.name) === q.id);
+      if (!control || control.disabled) throw new Error('The answer control is unavailable.');
+      if (q.type === 'radio') control.click();
+      else { control.value = option.value; control.dispatchEvent(new Event('input', { bubbles: true })); control.dispatchEvent(new Event('change', { bubbles: true })); }
+      const reread = (await readQuestions()).find((item) => item.id === q.id);
+      if (!reread || reread.value !== option.value) throw new Error('The page did not keep that answer.');
+      if (q.needsConfirm) await addKnown([q.id]);
+    } else if (['text', 'textarea', 'email', 'tel', 'number', 'search', 'url', 'date', 'datetime-local', 'month', 'time', 'week', 'color', 'password'].includes(q.type)) {
+      if (typeof args.value !== 'string') throw new Error('Enter text for this field.');
+      const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(q.el), 'value')?.set;
+      if (setter) setter.call(q.el, args.value); else q.el.value = args.value;
+      q.el.dispatchEvent(new Event('input', { bubbles: true }));
+      q.el.dispatchEvent(new Event('change', { bubbles: true }));
+      if (q.el.value !== args.value) throw new Error('The page did not keep that answer.');
+    } else throw new Error(`Unsupported required control: ${q.type || 'unknown'}`);
+    workerPending = null;
+    await reportWorkerEvent({ phase: 'APPLYING', pending: null });
+    setTimeout(tick, 25);
+    return { ok: true };
+  }
+
   /* ---------------- apply tab: cover letter ---------------- */
 
   const pageText = () => document.body.innerText || document.body.textContent || '';
@@ -393,6 +570,7 @@
   }
 
   function coverAttached() {
+    if (workerMode) return !!coverFileInput()?.files?.length;
     for (const inp of document.querySelectorAll(SEL.fileInput)) {
       if (inp.files && inp.files.length) return true;
     }
@@ -401,6 +579,27 @@
       for (const n of fileNames()) if (!coverBaseline.has(n)) return true;
     }
     return false;
+  }
+
+  function coverUploadComplete() {
+    const input = coverFileInput();
+    if (!input) return false;
+    if (!input.files?.length) return false;
+    const text = pageText();
+    if (ADDED_RE.test(text)) return true;
+    const uploading = document.querySelector('[role="progressbar"], [aria-busy="true"], [data-testid*="uploading" i]');
+    return !uploading && text.includes(input.files[0].name);
+  }
+
+  function coverFileInput() {
+    const marked = document.querySelector('input[type="file"][data-roletrack-worker-cover]');
+    if (marked) return marked;
+    const button = document.querySelector(SEL.coverUploadBtn);
+    for (let node = button; node && node !== document.body; node = node.parentElement) {
+      const inputs = [...node.querySelectorAll(SEL.fileInput)];
+      if (inputs.length === 1) return inputs[0];
+    }
+    return null;
   }
 
   function disarmGesture() {
@@ -445,6 +644,12 @@
 
   async function reviewStep(btn) {
     highlight(null);
+    if (workerMode) {
+      stopped = true;
+      await reportWorkerEvent({ phase: 'REVIEW_REACHED', pending: null, reviewUrl: location.href });
+      setStatus('Review reached. Dry run is on, so nothing was submitted. Browser remains open.');
+      return false;
+    }
     if (await isDry()) {
       setStatus('Review reached. Dry run is on, so nothing was submitted.');
       return false;
@@ -497,6 +702,10 @@
     // 2) cover letter: open the file dialog, wait until something is attached
     const up = document.querySelector(SEL.coverUploadBtn);
     if (up && !coverBaseline) coverBaseline = fileNames();
+    if (workerMode && up && !coverAttached() && !coverSkipped) {
+      await waitForWorkerInput({ id: 'cover-letter', el: up, label: 'Cover Letter', type: 'file', required: false, value: '', options: [] }, await readQuestions(), 'coverLetter');
+      return false;
+    }
     const { manualCoverLetter } = await store.get('manualCoverLetter');
     if (up && manualCoverLetter === true && !manualCoverContinueConfirmed && !coverSkipped) {
       disarmGesture();
@@ -534,6 +743,16 @@
     }
 
     const qs = await readQuestions();
+
+    if (workerMode) {
+      const unknown = findUnknownRequired(qs);
+      if (unknown) {
+        await waitForWorkerInput({ id: unknown.id || unknown.name || 'unknown-required-control', el: unknown, label: labelOf(unknown.closest('label,div,fieldset') || unknown), type: 'unknown', required: true, value: unknown.value || '', options: [] }, qs, 'unknown');
+        return false;
+      }
+      const waiting = qs.find((q) => !q.answered || q.needsConfirm);
+      if (waiting) { await waitForWorkerInput(waiting, qs); return false; }
+    }
 
     const empty = qs.find((q) => !q.answered && !q.needsConfirm);
     if (empty) {
@@ -576,6 +795,7 @@
     let btn = null;
     let moved = false;
     for (let attempt = 0; attempt < (onCover ? 3 : 1) && !moved; attempt++) {
+      if (workerMode && !(await workerHeartbeatFresh())) { await pauseAfterWorkerDisconnect(); return false; }
       const c = document.querySelector(SEL.continueBtn);
       if (!c) return false;
       if (attempt) await sleep(2 * SEC);
@@ -605,7 +825,8 @@
   }
 
   async function tick() {
-    if (busy || stopped) return;
+    if (busy || stopped || workerPaused || workerPending) return;
+    if (workerMode && !(await workerHeartbeatFresh())) { await pauseAfterWorkerDisconnect(); return; }
     busy = true;
     let advanced = false;
     try {
@@ -635,6 +856,7 @@
     const up = document.querySelector(SEL.coverUploadBtn);
     if (up && !coverAttached()) {
       coverSkipped = true; // "skip cover letter"
+      coverBaseline = null;
       disarmGesture();
       tick();
       return;
@@ -646,7 +868,7 @@
 
   /* ---------------- apply tab: start / resume ---------------- */
 
-  function runApplyFlow() {
+  function runApplyFlow(deferFirstTick = false) {
     if (flowStarted) return;
     flowStarted = true;
     ensureOverlay();
@@ -655,7 +877,7 @@
     document.addEventListener(
       'change',
       (e) => {
-        if (e.target.matches && e.target.matches(SEL.select)) addKnown([e.target.id]);
+        if (e.target.matches && e.target.matches(SEL.select)) addKnown([e.target.id || e.target.name]);
         setTimeout(tick, 50);
       },
       true
@@ -679,7 +901,8 @@
       timer = setTimeout(tick, 400);
     }).observe(document.body, { childList: true, subtree: true });
 
-    tick();
+    if (deferFirstTick) setTimeout(tick, 150);
+    else tick();
   }
 
   async function maybeResume() {
@@ -702,7 +925,12 @@
         } catch (_) {}
       }
     }
-    if (ok) runApplyFlow();
+    const { [workerTaskKey]: workerTask = {} } = await store.get(workerTaskKey);
+    if (ok) {
+      workerMode = !!workerTask.taskId && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(workerTask.phase);
+      if (workerMode && workerTask.phase === 'WAITING_BROWSER') { workerPaused = true; stopped = true; }
+      runApplyFlow();
+    }
   }
 
   console.log('[QA] Quick Apply Helper loaded');

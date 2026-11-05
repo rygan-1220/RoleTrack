@@ -1,0 +1,16 @@
+{
+  "name": "roletrack",
+  "version": "1.1.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "worker:setup": "node worker/cli.mjs setup",
+    "worker:run": "node worker/cli.mjs run",
+    "worker:resume": "node worker/cli.mjs resume",
+    "worker:reset": "node worker/cli.mjs reset"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
