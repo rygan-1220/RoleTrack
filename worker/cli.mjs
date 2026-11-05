@@ -8,6 +8,7 @@ import { chromium } from 'playwright';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PRIVATE_DIR = path.join(ROOT, '.roletrack-worker');
+const WORKER_CONFIG = path.join(PRIVATE_DIR, 'config.json');
 const PROFILE_DIR = path.join(PRIVATE_DIR, 'profile');
 const LOG_DIR = path.join(PRIVATE_DIR, 'runs');
 const EXTENSION_PATH = ROOT;
@@ -51,6 +52,26 @@ function safeLog(taskId, event, details = '') {
   const line = `${new Date().toISOString()} ${taskId || 'setup'} ${event}${details ? ` ${details}` : ''}\n`;
   try { fsSync.mkdirSync(LOG_DIR, { recursive: true }); fsSync.appendFileSync(path.join(LOG_DIR, `${taskId || 'setup'}.log`), line, 'utf8'); } catch {}
   process.stdout.write(`[${event}]${details ? ` ${details}` : ''}\n`);
+}
+
+async function readWorkerConfig() {
+  try { return JSON.parse(await fs.readFile(WORKER_CONFIG, 'utf8')); }
+  catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+}
+
+async function saveCoverLetterDirectory(directory) {
+  const config = await readWorkerConfig();
+  config.coverLetterDirectory = directory;
+  await fs.mkdir(PRIVATE_DIR, { recursive: true });
+  await fs.writeFile(WORKER_CONFIG, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+}
+
+async function coverLetterFiles(directory) {
+  const entries = await fs.readdir(directory, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile() && /^COVERLETTER_.+\.(?:pdf|docx?|rtf|txt|odt)$/i.test(entry.name))
+    .map((entry) => ({ name: entry.name, path: path.join(directory, entry.name) }))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 }
 
 async function launch() {
@@ -110,14 +131,36 @@ async function setup() {
     await page.goto('https://sg.jobstreet.com/', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
     console.log('\nRoleTrack worker setup browser is open with its dedicated profile.');
     console.log('Sign in to JobStreet if needed. Open the RoleTrack side panel and save your test Sheet settings.');
+    let sheetValidated = false;
     while (true) {
       const response = (await ui.ask('Press Enter to validate the saved test Sheet, or type exit to close: ')).trim().toLowerCase();
       if (response === 'exit' || response === 'quit') break;
       try {
         await extensionCommand(launched.bridge, 'testSheet');
         console.log('Test Sheet connection succeeded.');
+        sheetValidated = true;
         break;
       } catch (error) { console.log(`${error?.message || error} Configure the test Sheet in the side panel, then try again.`); }
+    }
+    if (sheetValidated) {
+      const config = await readWorkerConfig();
+      const existingDirectory = config.coverLetterDirectory || '';
+      while (true) {
+        const prompt = existingDirectory
+          ? `Cover letter directory [Enter keeps ${existingDirectory}]: `
+          : 'Cover letter directory (files named COVERLETTER_*): ';
+        const answer = (await ui.ask(prompt)).trim().replace(/^"|"$/g, '');
+        if (!answer && existingDirectory) break;
+        if (!answer) { console.log('Enter a directory path.'); continue; }
+        const directory = path.resolve(answer);
+        try {
+          const stat = await fs.stat(directory);
+          if (!stat.isDirectory()) throw new Error('That path is not a directory.');
+          await saveCoverLetterDirectory(directory);
+          console.log(`Cover letter directory saved: ${directory}`);
+          break;
+        } catch (error) { console.log(`${error?.message || error} Enter a valid directory path.`); }
+      }
     }
     console.log('Profile and extension settings will persist in .roletrack-worker/profile.');
   } finally {
@@ -270,14 +313,24 @@ async function run() {
         console.log(`\n${pending.prompt}\nControl: ${pending.controlType}${pending.required ? ' (required)' : ''}`);
         if (pending.currentAnswer) console.log(`Current answer: ${pending.currentAnswer}`);
         if (pending.kind === 'coverLetter') {
-          const answer = (await ui.ask('Enter a local file path to upload, or type skip: ')).trim();
+          const config = await readWorkerConfig();
+          let files = [];
+          if (config.coverLetterDirectory) {
+            try { files = await coverLetterFiles(config.coverLetterDirectory); }
+            catch (error) { console.log(`Could not read cover letter directory: ${error?.message || error}`); }
+          }
+          files.forEach((file, i) => console.log(`${i + 1}. ${file.name}`));
+          if (!files.length) console.log('No COVERLETTER_* files found in the configured directory.');
+          const answer = (await ui.ask(files.length ? 'Enter file number, or type skip: ' : 'Type skip (or fix the cover letter directory in worker setup): ')).trim();
           if (answer.toLowerCase() === 'pause') { await extensionCommand(bridge, 'pauseTask'); continue; }
           if (answer.toLowerCase() === 'exit' || answer.toLowerCase() === 'quit') { await extensionCommand(bridge, 'cancelTask'); throw new Error('Task cancelled by user.'); }
           if (answer.toLowerCase() === 'skip') {
             await sendAnswer(bridge, pending, { choice: 'skip' });
           } else {
             try {
-              const coverPath = path.resolve(answer.replace(/^"|"$/g, ''));
+              const choice = Number(answer);
+              if (!Number.isInteger(choice) || choice < 1 || choice > files.length) throw new Error('Enter one of the listed file numbers, or type skip.');
+              const coverPath = files[choice - 1].path;
               await fs.access(coverPath);
               applyPage = pages.find((p) => APPLY_RE.test(new URL(p.url()).pathname)) || applyPage;
               if (!applyPage) throw new Error('Application tab is unavailable for cover letter upload.');
@@ -313,7 +366,7 @@ async function run() {
                 await new Promise((resolve) => setTimeout(resolve, 300));
               }
               if (skipped) continue;
-              if (!complete) { console.log('Cover Letter upload was not confirmed. Type a local path again or type skip.'); continue; }
+              if (!complete) { console.log('Cover Letter upload was not confirmed. Choose a file number again or type skip.'); continue; }
               await sendAnswer(bridge, pending, { choice: 'upload' });
             } catch (error) { console.log(`${error?.message || error} Try another file or type skip.`); continue; }
           }
