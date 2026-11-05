@@ -1,11 +1,12 @@
 // Side panel controller: Detect -> Extract -> Review -> Sync -> optional Quick Apply.
 // Quick Apply opens only after a successful sync or explicit duplicate override.
 
-import { detectPlatform, scriptsFor } from '../utils/platform.js';
+import { detectPlatform } from '../utils/platform.js';
 import { todayISO, formatDisplay } from '../utils/date.js';
 import { getConfig, saveConfig, isConfigured, isValidApiUrl } from '../utils/storage.js';
 import { cleanJobUrl } from '../utils/url.js';
-import { syncJob, pingApi } from '../services/api.js';
+import { pingApi } from '../services/api.js';
+import { extractJobFromTab, validateJob, syncJobForTab } from '../services/job-workflow.js';
 import { STATUSES, DEFAULT_STATUS } from '../utils/status.js';
 
 const DRAFTS_KEY = 'jobTrackerDrafts';
@@ -141,22 +142,7 @@ async function scan() {
   // Browser-internal pages (chrome://, the Web Store, PDFs viewers…) can't be scripted.
   if (!isGoogleWorkspacePage && tab && tab.id != null && /^https?:/i.test(tab.url || '')) {
     try {
-      // 1) inject the extractor scripts (activeTab grants this for the tab you just clicked from)
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: scriptsFor(platform) });
-      if (platform.key !== 'generic') {
-        await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['content.css'] });
-      }
-      // 2) run extraction; the returned promise is awaited by Chrome
-      const [injection] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: async (platformKey) => {
-          const result = await window.JobTracker.run(platformKey);
-          result.experience = window.JobExperience?.scan() || null;
-          return result;
-        },
-        args: [platform.key],
-      });
-      result = injection && injection.result;
+      result = await extractJobFromTab(tab.id, tab.url);
     } catch (err) {
       // Chrome rejects injection on tabs without a current activeTab grant (for
       // example, when the panel follows a tab switch). This is an expected
@@ -250,14 +236,6 @@ async function saveDraft(key = state.pageKey) {
   await chrome.storage.local.set({ [DRAFTS_KEY]: { ...(stored[DRAFTS_KEY] || {}), [key]: draft } });
 }
 
-function validate(job) {
-  if (!job.company) return { field: 'company', message: 'Add the company name before syncing.' };
-  if (!job.role) return { field: 'role', message: 'Add the role before syncing.' };
-  if (job.url && !/^https?:\/\//i.test(job.url)) return { field: 'url', message: 'Job URL must start with http:// or https://' };
-  if (!STATUSES.includes(job.status)) return { field: 'status', message: 'Choose a status.' };
-  return null;
-}
-
 // ------------------------------------------------------------------ sync
 
 async function startQuickApply() {
@@ -279,7 +257,7 @@ async function onSync({ force = false, startApply = false } = {}) {
 
   for (const key of ['company', 'role', 'url']) markInvalid(key, false);
   const job = readForm();
-  const problem = validate(job);
+  const problem = validateJob(job);
   if (problem) {
     markInvalid(problem.field, true);
     setBanner('error', problem.message);
@@ -296,7 +274,7 @@ async function onSync({ force = false, startApply = false } = {}) {
   $('dupe-add').disabled = true;
   setBanner('info', 'Sending to Google Sheets…');
 
-  const result = await syncJob(state.config, job, { force });
+  const result = await syncJobForTab(state.config, state.tab?.id, job, { force });
 
   state.syncing = false;
   $('dupe-add').disabled = false;

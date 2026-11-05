@@ -1,17 +1,17 @@
 {
   "manifest_version": 3,
   "name": "RoleTrack",
-  "version": "1.1.0",
+  "version": "1.1.5",
   "minimum_chrome_version": "116",
   "description": "Review jobs, highlight experience requirements, and save applications to Google Sheets from the side panel.",
   "action": { "default_title": "Open RoleTrack side panel" },
-  "background": { "service_worker": "background.js" },
+  "background": { "service_worker": "background.js", "type": "module" },
   "side_panel": { "default_path": "sidepanel/sidepanel.html" },
   "permissions": ["activeTab", "scripting", "storage", "sidePanel", "tabs"],
   "host_permissions": [
     "https://script.google.com/*", "https://script.googleusercontent.com/*",
     "*://www.linkedin.com/jobs/*", "*://*.jobstreet.com/*", "*://*.jobstreet.com.my/*",
-    "https://*.jobstreet.co.id/*", "https://*.jobstreet.com.ph/*"
+    "https://*.jobstreet.co.id/*", "https://*.jobstreet.com.ph/*", "https://*.jobstreet.com.sg/*"
   ],
   "icons": {
     "16": "icons/icon16.png", "32": "icons/icon32.png",
@@ -22,7 +22,8 @@
       "matches": [
         "*://www.linkedin.com/jobs/*",
         "*://*.jobstreet.com/*",
-        "*://*.jobstreet.com.my/*"
+        "*://*.jobstreet.com.my/*",
+        "https://*.jobstreet.com.sg/*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
@@ -33,7 +34,8 @@
         "https://*.jobstreet.com/*",
         "https://*.jobstreet.com.my/*",
         "https://*.jobstreet.co.id/*",
-        "https://*.jobstreet.com.ph/*"
+        "https://*.jobstreet.com.ph/*",
+        "https://*.jobstreet.com.sg/*"
       ],
       "js": ["content/jobstreet-qa-helper.js"],
       "css": ["content.css"],

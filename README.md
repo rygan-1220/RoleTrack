@@ -21,6 +21,22 @@ RoleTrack currently loads as an unpacked extension; there is no build step.
 3. Choose **Load unpacked** and select this repository's folder (the folder containing `manifest.json`).
 4. Refresh any job listing tabs that were already open, then click the RoleTrack toolbar icon.
 
+### Local JobStreet worker (Windows)
+
+The optional local worker opens a dedicated visible Chromium profile using Playwright. It does not use your everyday browser profile. Version 1 supports Singapore JobStreet links and syncs each job using RoleTrack's default application status (`DEFAULT_STATUS` in `utils/status.js`, currently **Applied**). Auto start is forced off. The worker uses the **Dry run** setting saved in this dedicated profile: when on, it stops at Review; when off, it clicks Submit after the configured countdown. It writes to the Sheet configured in RoleTrack, so use a test Sheet while setting it up.
+
+1. Install Node.js 20 or newer.
+2. From this folder, run `npm install`, then `npx playwright install chromium`.
+3. Run `npm run worker:setup`. In the opened browser, sign in to JobStreet if needed, open the RoleTrack side panel, configure and test your Sheet, and set **Settings → Dry run** as desired. Turn it off only when you intend to submit real applications. Then enter the directory containing your `COVERLETTER_*` files when prompted. The directory is saved locally under `.roletrack-worker/config.json`; setup lets you change it later. The browser profile and extension settings are stored under `.roletrack-worker/profile`.
+4. Start one job with `npm run worker:run -- --url "https://sg.jobstreet.com/job/<job-id>"`. If the job is already in the Sheet, choose `continue` to skip the Sheet sync and proceed to Quick Apply, or `end` to stop without opening the application. The worker never creates a duplicate row.
+5. For each screening question, the terminal shows the full question, control type, required state, current answer, and complete choices. Enter an option number or a text answer. For a Cover Letter prompt, choose the number beside the desired `COVERLETTER_*` file or type `skip`.
+6. Type `pause` in the terminal to stop automation and take over the same browser. Complete the CAPTCHA, login, or other browser step, then type `resume`. Page changes do not resume the worker on their own. Type `cancel` at a question prompt to cancel the task.
+7. With Dry run on, the worker waits at Review with the browser open. With Dry run off, it submits after the configured countdown, then waits so you can check JobStreet's confirmation. Type `exit` when you want to close the browser. The run log and failure screenshot are stored under `.roletrack-worker/runs` and are excluded from Git.
+
+If the worker process is interrupted, it does not automatically replay the unfinished task. Run `npm run worker:resume` to reopen the saved application and continue without syncing again. Use `npm run worker:reset` only after inspecting the task and deciding to abandon it; it marks the task cancelled and allows a new run.
+
+The terminal is the first version of the worker's human interaction channel. It does not use n8n, generate Cover Letters, or use stealth behavior. CAPTCHA detection is best-effort; `pause` remains available at any point.
+
 To position the panel on the right, use **Chrome Settings → Appearance → Side panel → Right**. The browser controls the panel position. See [Chrome's side panel help](https://support.google.com/chrome/answer/13156494).
 
 If you previously used the standalone tracker or highlighter, disable those extensions to avoid overlapping controls. Settings from the old tracker are not imported; enter your Apps Script URL and API key again in RoleTrack.
@@ -71,10 +87,11 @@ The extension has no build step. To run the automated tests:
 
 ```sh
 npm install
+npx playwright install chromium
 npm test
 ```
 
-The tests use jsdom and mocked Chrome and Sheets APIs. They do not replace checking the extension in a live browser, against current job-site markup, and with your own Sheets deployment.
+The tests run the worker helper in Chromium against representative screening-question pages and check shared job validation and sync behavior. They do not replace checking current JobStreet markup or using your own test Sheet.
 
 ### 📁 Project layout
 
@@ -84,5 +101,6 @@ The tests use jsdom and mocked Chrome and Sheets APIs. They do not replace check
 | `sidepanel/` | Tracker form, settings, and experience summary |
 | `content/`, `content.js`, `content.css` | Page extraction and inline experience highlights |
 | `utils/`, `services/` | Shared utilities and Sheets API client |
+| `worker/` | Local Playwright worker, extension bridge, and dedicated profile workflow |
 | `gas/` | Google Apps Script backend and setup guide |
 | `test/` | Automated tests |
