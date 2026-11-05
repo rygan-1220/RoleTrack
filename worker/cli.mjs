@@ -91,7 +91,7 @@ async function launch() {
   const expectedVersion = JSON.parse(await fs.readFile(path.join(ROOT, 'manifest.json'), 'utf8')).version;
   let loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
   let protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
-  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true || protocol?.supportsDuplicateChoice !== true) {
+  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true || protocol?.supportsDuplicateChoice !== true || protocol?.supportsWorkerDryRunPreference !== true) {
     console.log(`[EXTENSION] Reloading RoleTrack to version ${expectedVersion}...`);
     await bridge.goto('chrome://extensions/');
     const reloaded = await bridge.evaluate(async () => {
@@ -125,11 +125,11 @@ async function launch() {
     while (Date.now() < deadline) {
       loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
       protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
-      if (loadedVersion === expectedVersion && protocol?.version === expectedVersion && protocol?.supportsResume === true && protocol?.supportsPreparedJob === true && protocol?.supportsDuplicateChoice === true) break;
+      if (loadedVersion === expectedVersion && protocol?.version === expectedVersion && protocol?.supportsResume === true && protocol?.supportsPreparedJob === true && protocol?.supportsDuplicateChoice === true && protocol?.supportsWorkerDryRunPreference === true) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
-  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true || protocol?.supportsDuplicateChoice !== true) {
+  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true || protocol?.supportsDuplicateChoice !== true || protocol?.supportsWorkerDryRunPreference !== true) {
     throw new Error(`RoleTrack extension did not reload to version ${expectedVersion}. Open chrome://extensions, reload RoleTrack, and retry.`);
   }
   console.log(`[EXTENSION] RoleTrack ${loadedVersion} ready.`);
@@ -234,6 +234,7 @@ async function run() {
     const { bridge } = launched;
     const setupState = await extensionCommand(bridge, 'getSetupStatus');
     if (!setupState?.configured) throw new Error('Set up and test your Sheet first with npm run worker:setup.');
+    console.log(`[SETTINGS] Dry run is ${setupState.dryRun ? 'ON (stops at Review)' : 'OFF (will submit after the configured countdown)'}.`);
     let page;
     let started;
     let duplicateSkipped = false;
@@ -477,6 +478,16 @@ async function run() {
           const finalInput = (await ui.ask('Type exit to close the browser; press Enter to keep it open: ')).trim().toLowerCase();
           if (finalInput === 'exit' || finalInput === 'quit') break;
           console.log('Browser is still open at Review. Type exit when you are finished.');
+        }
+        break;
+      }
+      if (task.phase === 'COMPLETED') {
+        safeLog(taskId, 'COMPLETED', 'Submit button was clicked; verify JobStreet confirmation in the browser.');
+        console.log('\nSubmit was clicked. Check JobStreet for its confirmation. The browser will remain open until you finish.');
+        while (true) {
+          const finalInput = (await ui.ask('Type exit when finished; press Enter to keep the browser open: ')).trim().toLowerCase();
+          if (finalInput === 'exit' || finalInput === 'quit') break;
+          console.log('Browser is still open. Type exit when you are finished.');
         }
         break;
       }

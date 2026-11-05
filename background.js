@@ -41,11 +41,13 @@ async function prepareJob({ taskId, tabId, url }) {
   if (current?.taskId && !['COMPLETED', 'FAILED', 'CANCELLED', 'REVIEW_REACHED'].includes(current.phase)) {
     throw new Error('Another RoleTrack worker task is already active.');
   }
-  await chrome.storage.local.set({ dryRun: true, autoStart: false, workerMode: true });
+  // Keep the user's Dry run preference. The worker uses the dedicated profile's
+  // extension settings, just like the normal Quick Apply helper.
+  await chrome.storage.local.set({ autoStart: false, workerMode: true });
   let task = await saveTask({ taskId, phase: 'EXTRACTING', sourceTabId: tabId, sourceUrl: source.url, applyTabId: null, pending: null, error: null });
   try {
     const extraction = await extractJobFromTab(tabId, source.url);
-    const job = createJobFromExtraction(extraction, source.url, { status: 'To Apply' });
+    const job = createJobFromExtraction(extraction, source.url);
     const validation = validateJob(job);
     if (validation) throw new Error(validation.message);
     const jobInfo = {
@@ -152,7 +154,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (command === 'resolveDuplicate') return resolveDuplicate(args);
     if (command === 'startJob') return runStartJob(args);
     if (command === 'getTask') return taskState();
-    if (command === 'getWorkerProtocol') return { version: chrome.runtime.getManifest().version, supportsResume: true, supportsPreparedJob: true, supportsDuplicateChoice: true };
+    if (command === 'getWorkerProtocol') return { version: chrome.runtime.getManifest().version, supportsResume: true, supportsPreparedJob: true, supportsDuplicateChoice: true, supportsWorkerDryRunPreference: true };
     if (command === 'heartbeat') {
       const task = await taskState();
       if (!task?.taskId || task.taskId !== args.taskId) throw new Error('Worker heartbeat does not match the active task.');

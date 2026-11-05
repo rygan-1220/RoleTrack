@@ -342,11 +342,12 @@
           workerPending = null;
           stopped = false;
           const review = !!document.querySelector(SEL.submitBtn);
-          await reportWorkerEvent({ phase: review ? 'REVIEW_REACHED' : 'APPLYING', pending: null });
-          if (review) { stopped = true; setStatus('Review reached. Dry run is on, so nothing was submitted.'); }
+          const dryAtReview = review && await isDry();
+          await reportWorkerEvent({ phase: dryAtReview ? 'REVIEW_REACHED' : 'APPLYING', pending: null });
+          if (dryAtReview) { stopped = true; setStatus('Review reached. Dry run is on, so nothing was submitted.'); }
           else if (!flowStarted) runApplyFlow(true);
           else setTimeout(tick, 150);
-          return { ok: true, phase: review ? 'REVIEW_REACHED' : 'APPLYING' };
+          return { ok: true, phase: dryAtReview ? 'REVIEW_REACHED' : 'APPLYING' };
         }
         if (command === 'answerQuestion') return applyWorkerAnswer(args);
         throw new Error(`Unknown helper command: ${command}`);
@@ -660,7 +661,7 @@
 
   async function reviewStep(btn) {
     highlight(null);
-    if (workerMode) {
+    if (workerMode && await isDry()) {
       stopped = true;
       await reportWorkerEvent({ phase: 'REVIEW_REACHED', pending: null, reviewUrl: location.href });
       setStatus('Review reached. Dry run is on, so nothing was submitted. Browser remains open.');
@@ -704,6 +705,11 @@
     } catch (_) {}
     b.click();
     await store.set({ lastSubmitted: { jobId, ts: Date.now() } });
+    if (workerMode) {
+      stopped = true;
+      await reportWorkerEvent({ phase: 'COMPLETED', pending: null, reviewUrl: location.href });
+      setStatus('Submit clicked. Check JobStreet for its confirmation.');
+    }
     showCloseTabAction();
     return false;
   }
