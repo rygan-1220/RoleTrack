@@ -78,7 +78,10 @@ async function syncAndStartJob({ taskId, job }) {
     if (!isConfigured(config)) throw new Error('Configure the test Sheet in RoleTrack before running the worker.');
     await saveTask({ phase: 'SYNCING' });
     const result = await syncJobForTab(config, tabId, job);
-    if (result.duplicate) throw new Error('This job is already in the Sheet. Worker tasks never force duplicate records.');
+    if (result.duplicate) {
+      const task = await saveTask({ phase: 'WAITING_INPUT', pending: { kind: 'duplicate', prompt: 'This job is already in the Sheet. Skip the Sheet sync and continue to Quick Apply, or end the application?', duplicateType: result.duplicateType || null, existingRow: result.existingRow || null } });
+      return { ok: true, waiting: true, duplicate: true, task };
+    }
     if (!result.success) throw new Error(result.message || 'Google Sheets sync failed.');
     const task = await saveTask({ phase: 'STARTING_APPLY', sheetRow: result.row || null });
     await chrome.storage.local.set({ [WORKER_KEY]: task, [HEARTBEAT_KEY]: { taskId, at: Date.now() } });
@@ -89,6 +92,22 @@ async function syncAndStartJob({ taskId, job }) {
     await saveTask({ phase: 'FAILED', error: String(error?.message || error) });
     throw error;
   }
+}
+
+async function resolveDuplicate({ taskId, choice }) {
+  const task = await taskState();
+  if (task?.taskId !== taskId || task.phase !== 'WAITING_INPUT' || task.pending?.kind !== 'duplicate') {
+    throw new Error('There is no duplicate decision awaiting an answer.');
+  }
+  if (choice === 'end') {
+    return { ok: true, task: await saveTask({ phase: 'CANCELLED', pending: null, error: null }) };
+  }
+  if (choice !== 'continue') throw new Error('Choose continue or end.');
+  const next = await saveTask({ phase: 'STARTING_APPLY', pending: null, sheetRow: null, error: null });
+  await chrome.storage.local.set({ [WORKER_KEY]: next, [HEARTBEAT_KEY]: { taskId, at: Date.now() } });
+  const started = await content(task.sourceTabId, { type: 'roletrack-worker-helper', command: 'startJob' });
+  if (!started?.ok) throw new Error(started?.message || 'Quick Apply could not be started.');
+  return { ok: true, task: next };
 }
 
 async function runStartJob(args) {
@@ -130,9 +149,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const { command, args = {} } = message;
     if (command === 'prepareJob') return prepareJob(args);
     if (command === 'syncAndStartJob') return syncAndStartJob(args);
+    if (command === 'resolveDuplicate') return resolveDuplicate(args);
     if (command === 'startJob') return runStartJob(args);
     if (command === 'getTask') return taskState();
-    if (command === 'getWorkerProtocol') return { version: chrome.runtime.getManifest().version, supportsResume: true, supportsPreparedJob: true };
+    if (command === 'getWorkerProtocol') return { version: chrome.runtime.getManifest().version, supportsResume: true, supportsPreparedJob: true, supportsDuplicateChoice: true };
     if (command === 'heartbeat') {
       const task = await taskState();
       if (!task?.taskId || task.taskId !== args.taskId) throw new Error('Worker heartbeat does not match the active task.');

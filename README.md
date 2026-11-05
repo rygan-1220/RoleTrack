@@ -28,7 +28,7 @@ The optional local worker opens a dedicated visible Chromium profile using Playw
 1. Install Node.js 20 or newer.
 2. From this folder, run `npm install`, then `npx playwright install chromium`.
 3. Run `npm run worker:setup`. In the opened browser, sign in to JobStreet if needed, open the RoleTrack side panel, configure and test your test Sheet, then enter the directory containing your `COVERLETTER_*` files when prompted. The directory is saved locally under `.roletrack-worker/config.json`; setup lets you change it later. The browser profile and extension settings are stored under `.roletrack-worker/profile`.
-4. Start one job with `npm run worker:run -- --url "https://sg.jobstreet.com/job/<job-id>"`.
+4. Start one job with `npm run worker:run -- --url "https://sg.jobstreet.com/job/<job-id>"`. If the job is already in the Sheet, choose `continue` to skip the Sheet sync and proceed to Quick Apply, or `end` to stop without opening the application. The worker never creates a duplicate row.
 5. For each screening question, the terminal shows the full question, control type, required state, current answer, and complete choices. Enter an option number or a text answer. For a Cover Letter prompt, choose the number beside the desired `COVERLETTER_*` file or type `skip`.
 6. Type `pause` in the terminal to stop automation and take over the same browser. Complete the CAPTCHA, login, or other browser step, then type `resume`. Page changes do not resume the worker on their own. Type `cancel` at a question prompt to cancel the task.
 7. At Review, the worker waits with the browser open. Type `exit` only when you want to close it. The run log and failure screenshot are stored under `.roletrack-worker/runs` and are excluded from Git.

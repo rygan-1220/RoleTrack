@@ -91,7 +91,7 @@ async function launch() {
   const expectedVersion = JSON.parse(await fs.readFile(path.join(ROOT, 'manifest.json'), 'utf8')).version;
   let loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
   let protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
-  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true) {
+  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true || protocol?.supportsDuplicateChoice !== true) {
     console.log(`[EXTENSION] Reloading RoleTrack to version ${expectedVersion}...`);
     await bridge.goto('chrome://extensions/');
     const reloaded = await bridge.evaluate(async () => {
@@ -125,11 +125,11 @@ async function launch() {
     while (Date.now() < deadline) {
       loadedVersion = await bridge.evaluate(() => chrome.runtime.getManifest().version).catch(() => '');
       protocol = await extensionCommand(bridge, 'getWorkerProtocol').catch(() => null);
-      if (loadedVersion === expectedVersion && protocol?.version === expectedVersion && protocol?.supportsResume === true && protocol?.supportsPreparedJob === true) break;
+      if (loadedVersion === expectedVersion && protocol?.version === expectedVersion && protocol?.supportsResume === true && protocol?.supportsPreparedJob === true && protocol?.supportsDuplicateChoice === true) break;
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
-  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true) {
+  if (loadedVersion !== expectedVersion || protocol?.version !== expectedVersion || protocol?.supportsResume !== true || protocol?.supportsPreparedJob !== true || protocol?.supportsDuplicateChoice !== true) {
     throw new Error(`RoleTrack extension did not reload to version ${expectedVersion}. Open chrome://extensions, reload RoleTrack, and retry.`);
   }
   console.log(`[EXTENSION] RoleTrack ${loadedVersion} ready.`);
@@ -236,6 +236,7 @@ async function run() {
     if (!setupState?.configured) throw new Error('Set up and test your Sheet first with npm run worker:setup.');
     let page;
     let started;
+    let duplicateSkipped = false;
     if (resumeMode) {
       const task = await extensionCommand(bridge, 'getTask');
       if (!task?.taskId) throw new Error('There is no saved worker task to resume.');
@@ -307,11 +308,32 @@ async function run() {
       }
       safeLog(taskId, 'SYNCING', 'Writing job details to the Sheet.');
       started = await extensionCommand(bridge, 'syncAndStartJob', { taskId, job: prepared.job });
+      if (started.waiting && started.duplicate) {
+        const duplicate = started.task?.pending;
+        console.log(`\n${duplicate?.prompt || 'This job is already in the Sheet.'}`);
+        if (duplicate?.existingRow) console.log(`Existing Sheet row: ${duplicate.existingRow}`);
+        let choice;
+        while (!choice) {
+          const answer = (await ui.ask('Type continue to skip sync and continue to Quick Apply, or end to stop: ')).trim().toLowerCase();
+          if (['continue', 'c', 'skip'].includes(answer)) choice = 'continue';
+          else if (['end', 'cancel', 'exit', 'quit'].includes(answer)) choice = 'end';
+          else console.log('Enter continue or end.');
+        }
+        const resolved = await extensionCommand(bridge, 'resolveDuplicate', { taskId, choice });
+        if (choice === 'end') {
+          safeLog(taskId, 'CANCELLED', 'User ended the application after a duplicate was found; no Sheet row was added.');
+          console.log('Application ended. No duplicate row was added and Quick Apply was not opened.');
+          return;
+        }
+        started = resolved;
+        duplicateSkipped = true;
+        safeLog(taskId, 'DUPLICATE_SKIPPED', 'Continuing to Quick Apply without syncing a Sheet row.');
+      }
     }
     heartbeatTimer = setInterval(() => { extensionCommand(bridge, 'heartbeat', { taskId }).catch(() => {}); }, 2000);
     heartbeatTimer.unref?.();
     if (resumeMode) safeLog(taskId, 'REATTACHED', 'Sheet sync was not repeated.');
-    else {
+    else if (!duplicateSkipped) {
       safeLog(taskId, 'SYNCED', started.task?.sheetRow ? `sheet-row=${started.task.sheetRow}` : 'sheet sync succeeded');
     }
     console.log('Worker task started. Use pause to take over the browser; resume returns to automation.');
