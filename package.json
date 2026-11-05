@@ -8,7 +8,8 @@
     "worker:setup": "node worker/cli.mjs setup",
     "worker:run": "node worker/cli.mjs run",
     "worker:resume": "node worker/cli.mjs resume",
-    "worker:reset": "node worker/cli.mjs reset"
+    "worker:reset": "node worker/cli.mjs reset",
+    "worker:telegram": "node worker/cli.mjs run --telegram"
   },
   "devDependencies": {
     "playwright": "^1.56.1"

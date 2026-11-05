@@ -37,6 +37,10 @@ If the worker process is interrupted, it does not automatically replay the unfin
 
 The terminal is the first version of the worker's human interaction channel. It does not use n8n, generate Cover Letters, or use stealth behavior. CAPTCHA detection is best-effort; `pause` remains available at any point.
 
+#### Telegram control (optional)
+
+During `npm run worker:setup`, provide a Telegram Bot Token from BotFather, open a private chat with the bot, and send the one-time `bind <code>` shown in the terminal. The token, bound Telegram account, and polling offset are saved only in the Git-ignored `.roletrack-worker/config.json`. Start the same visible worker browser with `npm run worker:telegram`, then send `/apply <JobStreet URL>`. Use `/status`, `/pause`, `/resume`, and `/cancel` to control it. Questions and Cover Letter choices are sent to that private chat; browser verification still happens on the worker computer. Telegram uses Bot API long polling and needs no public webhook. The terminal `worker:run` / `worker:resume` commands remain available.
+
 To position the panel on the right, use **Chrome Settings → Appearance → Side panel → Right**. The browser controls the panel position. See [Chrome's side panel help](https://support.google.com/chrome/answer/13156494).
 
 If you previously used the standalone tracker or highlighter, disable those extensions to avoid overlapping controls. Settings from the old tracker are not imported; enter your Apps Script URL and API key again in RoleTrack.

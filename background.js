@@ -97,7 +97,7 @@ async function syncAndStartJob({ taskId, job }) {
 }
 
 async function resolveDuplicate({ taskId, choice }) {
-  const task = await taskState();
+  let task = await taskState();
   if (task?.taskId !== taskId || task.phase !== 'WAITING_INPUT' || task.pending?.kind !== 'duplicate') {
     throw new Error('There is no duplicate decision awaiting an answer.');
   }
@@ -105,6 +105,15 @@ async function resolveDuplicate({ taskId, choice }) {
     return { ok: true, task: await saveTask({ phase: 'CANCELLED', pending: null, error: null }) };
   }
   if (choice !== 'continue') throw new Error('Choose continue or end.');
+  const source = task.sourceTabId == null ? null : await chrome.tabs.get(task.sourceTabId).catch(() => null);
+  if (!source?.url || new URL(source.url).pathname !== new URL(task.sourceUrl).pathname) {
+    const requested = new URL(task.sourceUrl);
+    const matching = (await chrome.tabs.query({})).find((tab) => {
+      try { const actual = new URL(tab.url); return actual.origin === requested.origin && actual.pathname === requested.pathname; } catch { return false; }
+    });
+    if (!matching) throw new Error('The saved JobStreet listing is not open. Reopen it in the worker browser, then resume.');
+    task = await saveTask({ sourceTabId: matching.id });
+  }
   const next = await saveTask({ phase: 'STARTING_APPLY', pending: null, sheetRow: null, error: null });
   await chrome.storage.local.set({ [WORKER_KEY]: next, [HEARTBEAT_KEY]: { taskId, at: Date.now() } });
   const started = await content(task.sourceTabId, { type: 'roletrack-worker-helper', command: 'startJob' });
@@ -222,7 +231,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       });
       if (!tab) throw new Error('Could not find the reopened JobStreet application tab.');
       await chrome.storage.local.set({ [HEARTBEAT_KEY]: { taskId: task.taskId, at: Date.now() } });
-      const attached = await content(tab.id, { type: 'roletrack-worker-helper', command: 'attachTask', args: { paused: task.phase === 'WAITING_BROWSER', task } });
+      const attached = await content(tab.id, { type: 'roletrack-worker-helper', command: 'attachTask', args: { taskId: task.taskId, paused: task.phase === 'WAITING_BROWSER', task } });
       if (!attached?.ok) throw new Error(attached?.message || 'RoleTrack could not attach to the saved task.');
       return saveTask({ applyTabId: tab.id, applyUrl: tab.url, phase: task.phase === 'WAITING_BROWSER' ? 'WAITING_BROWSER' : 'APPLYING', pending: null });
     }
