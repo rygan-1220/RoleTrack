@@ -15,6 +15,8 @@ const LOG_DIR = path.join(PRIVATE_DIR, 'runs');
 const EXTENSION_PATH = ROOT;
 const APPLY_RE = /\/job\/\d+\/apply(?:[/?#]|$)/i;
 const SG_JOB_RE = /^https:\/\/(?:sg\.jobstreet\.com|(?:www\.)?jobstreet\.com\.sg)\//i;
+let telegramLogMirror = null;
+let telegramMirrorEnabled = true;
 
 function applicationUrl(task) {
   if (task.applyUrl && APPLY_RE.test(new URL(task.applyUrl).pathname)) return task.applyUrl;
@@ -52,7 +54,9 @@ function terminal() {
 function safeLog(taskId, event, details = '') {
   const line = `${new Date().toISOString()} ${taskId || 'setup'} ${event}${details ? ` ${details}` : ''}\n`;
   try { fsSync.mkdirSync(LOG_DIR, { recursive: true }); fsSync.appendFileSync(path.join(LOG_DIR, `${taskId || 'setup'}.log`), line, 'utf8'); } catch {}
-  process.stdout.write(`[${event}]${details ? ` ${details}` : ''}\n`);
+  const display = `[${event}]${details ? ` ${details}` : ''}`;
+  process.stdout.write(`${display}\n`);
+  if (telegramMirrorEnabled) telegramLogMirror?.(display);
 }
 
 async function readWorkerConfig() {
@@ -252,51 +256,65 @@ async function resetTask() {
   } finally { ui.close(); if (context) await context.close(); }
 }
 
-async function run() {
-  const resumeMode = process.argv.includes('--resume');
+async function run(options = {}) {
+  const resumeMode = options.resumeMode ?? process.argv.includes('--resume');
   const telegramMode = process.argv.includes('--telegram');
   const idx = process.argv.indexOf('--url');
-  let url = idx >= 0 ? process.argv[idx + 1] : '';
+  let url = options.url ?? (idx >= 0 ? process.argv[idx + 1] : '');
   if (!resumeMode && url && !SG_JOB_RE.test(url)) throw new Error('Usage: npm run worker:run -- --url "https://sg.jobstreet.com/job/..." (or --resume for the saved task)');
 
   const ui = terminal();
   let context;
+  let telegram;
+  let originalConsoleLog;
   let heartbeatTimer;
   let taskId = crypto.randomUUID();
   let applyPage = null;
   try {
-    let telegram;
     if (telegramMode) {
       const config = await readWorkerConfig();
       if (!config.telegram?.token || !config.telegram?.userId || !config.telegram?.chatId) throw new Error('Configure and bind Telegram with npm run worker:setup first.');
-      telegram = new TelegramControl(config.telegram.token, config.telegram, { offset: config.telegram.offset || 0, onOffset: (offset) => { config.telegram.offset = offset; fs.writeFile(WORKER_CONFIG, `${JSON.stringify(config, null, 2)}\n`, 'utf8').catch(() => {}); } });
+      telegram = new TelegramControl(config.telegram.token, config.telegram, { offset: options.telegramOffset ?? config.telegram.offset ?? 0, onOffset: (offset) => { config.telegram.offset = offset; fs.writeFile(WORKER_CONFIG, `${JSON.stringify(config, null, 2)}\n`, 'utf8').catch(() => {}); } });
       await telegram.start();
+      originalConsoleLog = console.log;
+      telegramLogMirror = (message) => { telegram.send(message).catch(() => {}); };
+      telegramMirrorEnabled = true;
+      console.log = (...args) => {
+        originalConsoleLog(...args);
+        if (telegramMirrorEnabled) telegramLogMirror?.(args.map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join(' '));
+      };
       ui.ask = async (prompt = '') => {
-        if (prompt) await telegram.send(prompt);
+        if (prompt) { process.stdout.write(prompt); await telegram.send(prompt); }
         while (true) {
           const incoming = await telegram.next();
           const value = incoming.text.trim();
-          if (value === '/status') { const current = await extensionCommand(bridge, 'getTask'); await telegram.send(`Task ${current?.taskId || 'not started'}: ${current?.phase || 'idle'}`); continue; }
-          if (value === '/pause') { await extensionCommand(bridge, 'pauseTask').catch(() => {}); await telegram.send('Paused. Complete any browser verification on the worker computer, then send /resume.'); continue; }
-          if (value === '/resume') { await extensionCommand(bridge, 'resumeTask').catch(async () => telegram.send('Could not resume yet. Check the JobStreet application tab on the worker computer.')); continue; }
+          if (value === '/status') { const current = await extensionCommand(bridge, 'getTask'); console.log(`[STATUS] Task ${current?.taskId || 'not started'}: ${current?.phase || 'idle'}`); continue; }
+          if (value === '/pause') { await extensionCommand(bridge, 'pauseTask').catch(() => {}); console.log('[WAITING_BROWSER] Paused. Complete any browser verification on the worker computer, then send /resume.'); continue; }
+          if (value === '/resume') { await extensionCommand(bridge, 'resumeTask').catch((error) => console.log(`[WAITING_BROWSER] Could not resume yet: ${error?.message || error}`)); continue; }
           if (value === '/cancel') { await extensionCommand(bridge, 'cancelTask').catch(() => {}); return 'cancel'; }
           return value;
         }
       };
       ui.take = () => telegram.take()?.text;
       ui.putBack = (line) => telegram.putBack(line === undefined ? undefined : { type: 'text', text: line });
-      ui.close = () => { telegram.stop(); };
-      await telegram.send(`RoleTrack worker online. ${resumeMode ? 'Resuming the saved task.' : 'Send /apply <JobStreet URL> to start a task.'}`);
+      ui.close = () => telegram.stop();
+      console.log(`[WORKER] RoleTrack worker online. ${resumeMode ? 'Resuming the saved task.' : 'Send /apply <JobStreet URL> to start a task.'}`);
       if (!resumeMode && !url) {
         while (!url) {
           const incoming = (await telegram.next()).text.trim();
-          if (incoming.startsWith('/apply ')) url = incoming.slice(7).trim();
-          else if (incoming === '/status') await telegram.send('No task has started yet.');
-          else await telegram.send('Send /apply <JobStreet URL> to start a task.');
-          if (url && !SG_JOB_RE.test(url)) { await telegram.send('That URL is not a supported Singapore JobStreet link.'); url = ''; }
+          if (incoming.startsWith('/apply ')) {
+            url = incoming.slice(7).trim();
+            if (options.ignoreUrl && url === options.ignoreUrl) {
+              console.log('[DUPLICATE] Ignored a repeated link that was already ended. Send a different /apply link when ready.');
+              url = '';
+            }
+          } else if (incoming === '/status') console.log('[STATUS] No task has started yet.');
+          else if (incoming === '/close') console.log('[WORKER] No application browser is open. Send /apply <JobStreet URL> when ready.');
+          if (url && !SG_JOB_RE.test(url)) { console.log('[ERROR] That URL is not a supported Singapore JobStreet link.'); url = ''; }
         }
       }
     }
+    const listenForNext = (skippedUrl = '') => ({ listen: true, skippedUrl, telegramOffset: telegram?.offset });
     const launched = await launch();
     ({ context } = launched);
     const { bridge } = launched;
@@ -304,7 +322,6 @@ async function run() {
     if (!setupState?.configured) throw new Error('Set up and test your Sheet first with npm run worker:setup.');
     if (telegram && !setupState.dryRun) throw new Error('Telegram mode always stops at Review. Turn on Settings → Dry run in the RoleTrack side panel, then restart the worker.');
     console.log(`[SETTINGS] Dry run is ${setupState.dryRun ? 'ON (stops at Review)' : 'OFF (will submit after the configured countdown)'}.`);
-    if (telegram) await telegram.send(`Worker connected. Dry run is ${setupState.dryRun ? 'ON; the task stops at Review.' : 'OFF; submission may occur after the configured countdown.'}`);
     let page;
     let started;
     let duplicateSkipped = false;
@@ -318,9 +335,17 @@ async function run() {
         const prompt = `${task.pending.prompt}\nExisting Sheet row: ${task.pending.existingRow || 'unknown'}`;
         let choice;
         if (telegram) {
-          choice = await telegram.choose(prompt, [
-            { label: 'Continue (skip sync)', value: 'continue' }, { label: 'End', value: 'end' },
-          ]);
+          while (!['continue', 'end', '/cancel', 'cancel'].includes(choice)) {
+            choice = await telegram.choose(prompt, [
+              { label: 'Continue (skip sync)', value: 'continue' }, { label: 'End', value: 'end' },
+            ]);
+            if (choice && !['continue', 'end', '/cancel', 'cancel'].includes(choice)) console.log('[ERROR] Choose Continue or End using the buttons, or send /cancel.');
+          }
+          if (['/cancel', 'cancel'].includes(choice.toLowerCase())) {
+            await extensionCommand(bridge, 'cancelTask');
+            console.log('[CANCELLED] Task canceled. Listening for another application link.');
+            return listenForNext();
+          }
           if (!choice) throw new Error('No valid Telegram duplicate choice was received. Restart with --resume to choose again.');
         } else {
           while (!choice) {
@@ -331,9 +356,8 @@ async function run() {
         }
         const resolved = await extensionCommand(bridge, 'resolveDuplicate', { taskId: task.taskId, choice });
         if (choice === 'end') {
-          if (telegram) await telegram.send('Application ended. No duplicate row was added.');
-          console.log('Application ended. No duplicate row was added.');
-          return;
+          console.log('[CANCELLED] Application ended. No duplicate row was added.');
+          return telegram ? listenForNext(task.sourceUrl) : undefined;
         }
         task = resolved.task;
       }
@@ -395,23 +419,40 @@ async function run() {
       const prepared = await extensionCommand(bridge, 'prepareJob', { taskId, url });
       const info = prepared.task?.jobInfo;
       if (info) {
-        console.log('\n[JOB_INFO]');
-        for (const [label, value] of [['Company', info.company], ['Role', info.role], ['Location', info.location], ['Salary', info.salary], ['Employment type', info.employmentType]]) {
-          if (value) console.log(`  ${label}: ${value}`);
+        const fields = [['Company', info.company], ['Role', info.role], ['Location', info.location], ['Salary', info.salary], ['Employment type', info.employmentType]].filter(([, value]) => value);
+        const shouldMirror = telegramMirrorEnabled;
+        if (telegram) telegramMirrorEnabled = false;
+        try {
+          console.log('\n[JOB_INFO]');
+          for (const [label, value] of fields) console.log(`  ${label}: ${value}`);
+        } finally {
+          telegramMirrorEnabled = shouldMirror;
         }
+        if (telegram) await telegram.send(`[JOB_INFO]\n${fields.map(([label, value]) => `  ${label}: ${value}`).join('\n')}`);
       }
       safeLog(taskId, 'SYNCING', 'Writing job details to the Sheet.');
       started = await extensionCommand(bridge, 'syncAndStartJob', { taskId, job: prepared.job });
       if (started.waiting && started.duplicate) {
         const duplicate = started.task?.pending;
+        telegramMirrorEnabled = !telegram;
         console.log(`\n${duplicate?.prompt || 'This job is already in the Sheet.'}`);
         if (duplicate?.existingRow) console.log(`Existing Sheet row: ${duplicate.existingRow}`);
+        telegramMirrorEnabled = true;
         if (telegram) {
-          const choice = await telegram.choose(`${duplicate?.prompt || 'This job is already in the Sheet.'}\nExisting row: ${duplicate?.existingRow || 'unknown'}`, [
-            { label: 'Continue (skip sync)', value: 'continue', key: `duplicate:${taskId}` }, { label: 'End', value: 'end', key: `duplicate:${taskId}` },
-          ]);
+          let choice;
+          while (!['continue', 'end', '/cancel', 'cancel'].includes(choice)) {
+            choice = await telegram.choose(`${duplicate?.prompt || 'This job is already in the Sheet.'}\nExisting row: ${duplicate?.existingRow || 'unknown'}`, [
+              { label: 'Continue (skip sync)', value: 'continue', key: `duplicate:${taskId}` }, { label: 'End', value: 'end', key: `duplicate:${taskId}` },
+            ]);
+            if (choice && !['continue', 'end', '/cancel', 'cancel'].includes(choice)) console.log('[ERROR] Choose Continue or End using the buttons, or send /cancel.');
+          }
+          if (['/cancel', 'cancel'].includes(choice.toLowerCase())) {
+            await extensionCommand(bridge, 'cancelTask');
+            console.log('[CANCELLED] Task canceled. Listening for another application link.');
+            return listenForNext();
+          }
           const resolved = await extensionCommand(bridge, 'resolveDuplicate', { taskId, choice });
-          if (choice === 'end') { await telegram.send('Application ended. No duplicate row was added.'); return; }
+          if (choice === 'end') { console.log('[CANCELLED] Application ended. No duplicate row was added.'); return listenForNext(url); }
           started = resolved; duplicateSkipped = true;
         }
         if (!telegram) {
@@ -426,7 +467,7 @@ async function run() {
           if (choice === 'end') {
             safeLog(taskId, 'CANCELLED', 'User ended the application after a duplicate was found; no Sheet row was added.');
             console.log('Application ended. No duplicate row was added and Quick Apply was not opened.');
-            return;
+            return telegram ? listenForNext() : undefined;
           }
           started = resolved;
         }
@@ -441,7 +482,6 @@ async function run() {
       safeLog(taskId, 'SYNCED', started.task?.sheetRow ? `sheet-row=${started.task.sheetRow}` : 'sheet sync succeeded');
     }
     console.log('Worker task started. Use pause to take over the browser; resume returns to automation.');
-    if (telegram) await telegram.send(`Task ${taskId} started. Use /status, /pause, /resume, or /cancel.`);
 
     let lastPhase = '';
     let takeoverNoticeSent = false;
@@ -450,7 +490,7 @@ async function run() {
       const command = inputLine?.trim().toLowerCase();
       if (command === '/status') {
         const status = await extensionCommand(bridge, 'getTask');
-        await telegram?.send(`Task ${status?.taskId || taskId}: ${status?.phase || 'unknown'}`);
+        console.log(`[STATUS] Task ${status?.taskId || taskId}: ${status?.phase || 'unknown'}`);
       } else if (command === '/pause' || command === 'pause') {
         await extensionCommand(bridge, 'pauseTask');
         safeLog(taskId, 'WAITING_BROWSER', 'Browser takeover requested.');
@@ -481,7 +521,6 @@ async function run() {
       if (!task) throw new Error('Worker task state is missing; no task was replayed.');
       if (task.phase !== lastPhase) {
         safeLog(taskId, task.phase);
-        if (telegram && ['WAITING_BROWSER', 'REVIEW_REACHED', 'FAILED', 'CANCELLED'].includes(task.phase)) await telegram.send(`Task ${taskId}: ${task.phase}${task.phase === 'WAITING_BROWSER' ? '. Complete any CAPTCHA or login check in the worker browser, then send /resume.' : task.phase === 'REVIEW_REACHED' ? '. Review reached; no submission was made.' : '.'}`);
         lastPhase = task.phase;
         if (task.phase !== 'WAITING_BROWSER') takeoverNoticeSent = false;
       }
@@ -490,9 +529,10 @@ async function run() {
 
       if (task.phase === 'WAITING_INPUT' && task.pending) {
         const pending = task.pending;
-        if (telegram) await telegram.send(`${pending.prompt}\n${pending.controlType || ''}${pending.required ? ' (required)' : ''}${pending.currentAnswer ? `\nCurrent: ${pending.currentAnswer}` : ''}`);
+        telegramMirrorEnabled = !telegram;
         console.log(`\n${pending.prompt}\nControl: ${pending.controlType}${pending.required ? ' (required)' : ''}`);
         if (pending.currentAnswer) console.log(`Current answer: ${pending.currentAnswer}`);
+        telegramMirrorEnabled = true;
         if (pending.kind === 'coverLetter') {
           const config = await readWorkerConfig();
           let files = [];
@@ -500,21 +540,28 @@ async function run() {
             try { files = await coverLetterFiles(config.coverLetterDirectory); }
             catch (error) { console.log(`Could not read cover letter directory: ${error?.message || error}`); }
           }
+          telegramMirrorEnabled = !telegram;
           files.forEach((file, i) => console.log(`${i + 1}. ${file.name}`));
           if (!files.length) console.log('No COVERLETTER_* files found in the configured directory.');
+          telegramMirrorEnabled = true;
           let answer;
           if (telegram) {
+            const questionPrompt = `${pending.prompt}${pending.required ? ' (required)' : ''}${pending.currentAnswer ? `\nCurrent: ${pending.currentAnswer}` : ''}`;
             answer = files.length
-              ? await telegram.choose('Choose a Cover Letter or skip:', [...files.map((file, i) => ({ label: file.name, value: `file:${i}`, key: `${taskId}:${pending.requestId}` })), { label: 'Skip', value: 'skip', key: `${taskId}:${pending.requestId}` }])
-              : await telegram.choose('No COVERLETTER_* files found in the configured directory.', [{ label: 'Skip', value: 'skip', key: `${taskId}:${pending.requestId}` }]);
+              ? await telegram.choose(`${questionPrompt}\nChoose a Cover Letter or skip:`, [...files.map((file, i) => ({ label: file.name, value: `file:${i}`, key: `${taskId}:${pending.requestId}` })), { label: 'Skip', value: 'skip', key: `${taskId}:${pending.requestId}` }])
+              : await telegram.choose(`${questionPrompt}\nNo COVERLETTER_* files found. Skip or fix the directory in worker setup.`, [{ label: 'Skip', value: 'skip', key: `${taskId}:${pending.requestId}` }]);
             if (typeof answer !== 'string' || !answer) {
-              await telegram.send('I did not receive a valid button choice. Please choose a Cover Letter or Skip again.');
+              console.log('[QUESTION] I did not receive a valid button choice. Please choose a Cover Letter or Skip again.');
               continue;
             }
             if (answer.startsWith('file:')) answer = String(Number(answer.slice(5)) + 1);
           } else answer = (await ui.ask(files.length ? 'Enter file number, or type skip: ' : 'Type skip (or fix the cover letter directory in worker setup): ')).trim();
           if (answer.toLowerCase() === 'pause') { await extensionCommand(bridge, 'pauseTask'); continue; }
-          if (['exit', 'quit', 'cancel', '/cancel'].includes(answer.toLowerCase())) { await extensionCommand(bridge, 'cancelTask'); throw new Error('Task cancelled by user.'); }
+          if (['exit', 'quit', 'cancel', '/cancel'].includes(answer.toLowerCase())) {
+            await extensionCommand(bridge, 'cancelTask');
+            if (telegram) { console.log('[CANCELLED] Task canceled. Listening for another application link.'); return listenForNext(); }
+            throw new Error('Task cancelled by user.');
+          }
           if (answer.toLowerCase() === 'skip') {
             await sendAnswer(bridge, pending, { choice: 'skip' });
           } else {
@@ -552,6 +599,7 @@ async function run() {
                 }
                 if (['exit', 'quit', '/cancel', 'cancel'].includes(terminalInput)) {
                   await extensionCommand(bridge, 'cancelTask');
+                  if (telegram) { console.log('[CANCELLED] Task canceled. Listening for another application link.'); return listenForNext(); }
                   throw new Error('Task cancelled by user.');
                 }
                 await new Promise((resolve) => setTimeout(resolve, 300));
@@ -572,7 +620,13 @@ async function run() {
         if (pending.controlType === 'radio' || pending.controlType === 'select') {
           if (telegram) {
             const enabled = (pending.options || []).filter((option) => !option.disabled);
-            const value = await telegram.choose('Choose an answer:', enabled.map((option) => ({ label: option.text, value: `option:${option.id}`, key: `${taskId}:${pending.questionId}:${pending.requestId}` })));
+            const prompt = `${pending.prompt}${pending.required ? ' (required)' : ''}${pending.currentAnswer ? `\nCurrent answer: ${pending.currentAnswer}` : ''}\nChoose an answer:`;
+            const value = await telegram.choose(prompt, enabled.map((option) => ({ label: option.text, value: `option:${option.id}`, key: `${taskId}:${pending.questionId}:${pending.requestId}` })));
+            if (['/cancel', 'cancel'].includes(value.toLowerCase())) {
+              await extensionCommand(bridge, 'cancelTask');
+              console.log('[CANCELLED] Task canceled. Listening for another application link.');
+              return listenForNext();
+            }
             const option = enabled.find((item) => `option:${item.id}` === value);
             if (option) await sendAnswer(bridge, pending, { optionId: option.id, value: option.value });
             continue;
@@ -586,9 +640,15 @@ async function run() {
           if (!option || option.disabled) { console.log('Choose an enabled option number.'); continue; }
           await sendAnswer(bridge, pending, { optionId: option.id, value: option.value });
         } else {
-          answer = await ui.ask('Enter answer (or type cancel): ');
+          answer = await ui.ask(telegram
+            ? `${pending.prompt}${pending.required ? ' (required)' : ''}${pending.currentAnswer ? `\nCurrent answer: ${pending.currentAnswer}` : ''}\nEnter answer (or type cancel): `
+            : 'Enter answer (or type cancel): ');
           if (answer.trim().toLowerCase() === 'pause') { await extensionCommand(bridge, 'pauseTask'); continue; }
-          if (['cancel', 'exit', 'quit'].includes(answer.trim().toLowerCase())) { await extensionCommand(bridge, 'cancelTask'); throw new Error('Task cancelled by user while awaiting an answer.'); }
+          if (['cancel', 'exit', 'quit'].includes(answer.trim().toLowerCase())) {
+            await extensionCommand(bridge, 'cancelTask');
+            if (telegram) { console.log('[CANCELLED] Task canceled. Listening for another application link.'); return listenForNext(); }
+            throw new Error('Task cancelled by user while awaiting an answer.');
+          }
           await sendAnswer(bridge, pending, { value: answer });
         }
         continue;
@@ -596,8 +656,7 @@ async function run() {
 
       if (task.phase === 'WAITING_BROWSER') {
         if (!takeoverNoticeSent) {
-          if (telegram) await telegram.send('Browser takeover is active. Complete verification in the worker browser, then send /resume.');
-          else console.log('Browser takeover is active. Complete the step in the browser, then type resume.');
+          console.log(`[WAITING_BROWSER] ${telegram ? 'Complete verification in the worker browser, then send /resume.' : 'Complete the step in the browser, then type resume.'}`);
           takeoverNoticeSent = true;
         }
         if (telegram) { await new Promise((resolve) => setTimeout(resolve, 700)); continue; }
@@ -612,14 +671,22 @@ async function run() {
       if (task.phase === 'REVIEW_REACHED') {
         safeLog(taskId, 'REVIEW_REACHED', 'No submission attempted.');
         console.log('\nReview reached. The browser will remain open. Do not click Submit unless you intend to submit the application.');
-        if (telegram) await telegram.send('Review reached. The worker will not submit. The browser remains open on the worker computer.');
         if (telegram) {
+          await telegram.send('[REVIEW] Dry run stops before submission. Review the application in the worker browser. Submit manually in JobStreet if you are ready, or close the application tab if not. Then send /apply <JobStreet URL> for the next application, or /close to close this browser session and keep listening.');
+          let nextUrl = '';
           while (true) {
-            const command = (await telegram.next()).text.trim().toLowerCase();
-            if (command === '/cancel' || command === '/exit') break;
-            if (command === '/status') await telegram.send(`Task ${taskId}: REVIEW_REACHED. No submission was made.`);
-            else await telegram.send('Task is at Review. Send /status or /cancel to close the worker.');
+            const incoming = (await telegram.next()).text.trim();
+            const command = incoming.toLowerCase();
+            if (command === '/close') return listenForNext();
+            if (command === '/cancel') return listenForNext();
+            if (command === '/status') console.log(`[REVIEW] Task ${taskId} is waiting for your review. No submission was made.`);
+            else if (command.startsWith('/apply ')) {
+              const candidate = incoming.slice(7).trim();
+              if (!SG_JOB_RE.test(candidate)) await telegram.send('[ERROR] Send a Singapore JobStreet link: /apply <JobStreet URL>.');
+              else { nextUrl = candidate; break; }
+            } else console.log('[REVIEW] Submit or close this application in the browser first. Then send /apply <JobStreet URL> for the next one, or /close to close this browser session and keep listening.');
           }
+          if (nextUrl) return { url: nextUrl, telegramOffset: telegram.offset };
           break;
         }
         while (true) {
@@ -638,6 +705,10 @@ async function run() {
           console.log('Browser is still open. Type exit when you are finished.');
         }
         break;
+      }
+      if (task.phase === 'CANCELLED' && telegram) {
+        console.log('[CANCELLED] Task canceled. Listening for another application link.');
+        return listenForNext();
       }
       if (task.phase === 'FAILED' || task.phase === 'CANCELLED') throw new Error(task.error || `Task ended in ${task.phase}.`);
 
@@ -668,14 +739,20 @@ async function run() {
     throw error;
   } finally {
     clearInterval(heartbeatTimer);
-    ui.close();
+    if (typeof originalConsoleLog === 'function') console.log = originalConsoleLog;
+    telegramLogMirror = null;
+    telegramMirrorEnabled = true;
+    await ui.close();
     if (context) await context.close();
   }
 }
 
 const command = process.argv[2];
 if (command === 'setup') await setup();
-else if (command === 'run') await run();
+else if (command === 'run') {
+  let next = await run();
+  while (next?.url || next?.listen) next = await run({ url: next.url || '', resumeMode: false, telegramOffset: next.telegramOffset, ignoreUrl: next.skippedUrl || '' });
+}
 else if (command === 'resume') { process.argv.push('--resume'); await run(); }
 else if (command === 'reset') await resetTask();
 else throw new Error('Use `setup`, `run -- --url <job URL>`, `resume`, or `reset`.');

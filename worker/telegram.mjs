@@ -2,6 +2,22 @@ import crypto from 'node:crypto';
 
 const API = 'https://api.telegram.org/bot';
 
+function telegramHtml(text) {
+  const raw = String(text).slice(0, 3900);
+  const existing = raw.match(/^\[([A-Za-z][A-Za-z0-9 _-]{0,30})\]\s*/);
+  const body = existing ? raw.slice(existing[0].length) : raw;
+  const lower = body.toLowerCase();
+  const title = existing?.[1]
+    || (lower.includes('review') ? 'REVIEW'
+      : lower.includes('cover letter') || lower.includes('question') || lower.includes('choose') ? 'QUESTION'
+        : lower.includes('duplicate') || lower.includes('sheet') ? 'SHEET'
+          : lower.includes('captcha') || lower.includes('browser takeover') || lower.includes('paused') || lower.includes('resume') ? 'BROWSER'
+            : lower.includes('status') || /\b(applying|waiting_input|waiting_browser|synced|syncing)\b/.test(lower) ? 'STATUS'
+              : 'WORKER');
+  const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<b>[${escape(title)}]</b>\n${escape(body)}`;
+}
+
 export class TelegramControl {
   constructor(token, binding, { offset = 0, onOffset = () => {} } = {}) {
     this.token = token;
@@ -13,11 +29,12 @@ export class TelegramControl {
     this.polling = false;
     this.callbackMap = new Map();
     this.seenCallbacks = new Set();
+    this.sendQueue = Promise.resolve();
   }
 
-  async api(method, body = {}) {
+  async api(method, body = {}, { signal } = {}) {
     const response = await fetch(`${API}${this.token}/${method}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
     });
     const data = await response.json();
     if (!response.ok || !data.ok) throw new Error(`Telegram ${method} failed (${data.error_code || response.status}).`);
@@ -29,10 +46,16 @@ export class TelegramControl {
     this.pollPromise = this.poll();
   }
 
-  async stop() { this.polling = false; await this.pollPromise?.catch(() => {}); }
+  async stop() {
+    this.polling = false;
+    this.pollAbort?.abort();
+    await this.pollPromise?.catch(() => {});
+  }
 
   async send(text, replyMarkup) {
-    return this.api('sendMessage', { chat_id: this.binding.chatId, text: String(text).slice(0, 4000), ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
+    const request = this.sendQueue.then(() => this.api('sendMessage', { chat_id: this.binding.chatId, text: telegramHtml(text), parse_mode: 'HTML', ...(replyMarkup ? { reply_markup: replyMarkup } : {}) }));
+    this.sendQueue = request.catch(() => {});
+    return request;
   }
 
   async ask(prompt, buttons) {
@@ -56,7 +79,8 @@ export class TelegramControl {
   async poll() {
     while (this.polling) {
       try {
-        const updates = await this.api('getUpdates', { offset: this.offset, timeout: 25, allowed_updates: ['message', 'callback_query'] });
+        this.pollAbort = new AbortController();
+        const updates = await this.api('getUpdates', { offset: this.offset, timeout: 25, allowed_updates: ['message', 'callback_query'] }, { signal: this.pollAbort.signal });
         for (const update of updates) {
           this.offset = update.update_id + 1;
           this.onOffset(this.offset);
@@ -85,7 +109,7 @@ export class TelegramControl {
       this.callbackMap.delete(callback.data);
       this.receive({ type: 'callback', text: choice.value, updateId, callbackId: callback.id });
       await this.api('answerCallbackQuery', { callback_query_id: callback.id, text: `Selected: ${choice.label}` }).catch(() => {});
-      await this.api('sendMessage', { chat_id: this.binding.chatId, text: `Selected: ${choice.label}` }).catch(() => {});
+      await this.send(`Selected: ${choice.label}`).catch(() => {});
       return true;
     }
     await this.api('answerCallbackQuery', { callback_query_id: callback.id, text: 'This choice is no longer available.' }).catch(() => {});
@@ -99,10 +123,13 @@ export class TelegramControl {
       this.callbackMap.set(id, { value, label });
       return [{ text: label.slice(0, 60), callback_data: id }];
     });
+    process.stdout.write(`${prompt}\n`);
     const response = await this.ask(prompt, rows);
-    if (typeof response === 'string') return response;
-    if (typeof response?.text === 'string') return response.text;
-    if (typeof response?.value === 'string') return response.value;
-    return '';
+    const raw = typeof response === 'string' ? response
+      : typeof response?.text === 'string' ? response.text
+        : typeof response?.value === 'string' ? response.value : '';
+    const normalized = raw.trim().toLowerCase();
+    const matchingChoice = choices.find((choice) => choice.value.toLowerCase() === normalized || choice.label.trim().toLowerCase() === normalized);
+    return matchingChoice?.value ?? raw;
   }
 }
